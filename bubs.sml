@@ -432,6 +432,7 @@ structure bubs :> BUBS = struct
     |   installChild(new, (AppArg(App{arg,...})))         = arg  := new
     |   installChild(new, (Op2Arg1(Op2{arg1,...})))       = arg1 := new
     |   installChild(new, (Op2Arg2(Op2{arg2,...})))       = arg2 := new
+    |   installChild(new, Root) = ()
 
     (* Replace one child w/another in the tree.
     * - 'uplinksOfOld' is the parent dll for some term -- the old term.
@@ -609,7 +610,9 @@ structure bubs :> BUBS = struct
 
         (* Copied up into an already-copied op2 node. Mutate the existing copy & quit. *)
     |   upcopyUplink (newChild , Op2Arg2(Op2{copy = ref(SOME(Op2{arg2,...})),...})) =
-            arg2 := newChild 
+            arg2 := newChild
+
+    |   upcopyUplink (newChild , Root) = ()
 
     (* Upcopy from a list of uplinks *)
     and upcopyUplinks (newChild , NONE) = ()    (* No uplinks in list => stop recursion *)
@@ -668,6 +671,7 @@ structure bubs :> BUBS = struct
     |   cleanUplink(LambdaBody l) = cleanLambda l
     |   cleanUplink(Op2Arg1 op2) = cleanOp2 op2
     |   cleanUplink(Op2Arg2 op2) = cleanOp2 op2
+    |   cleanUplink Root = ()
 
 
     fun traceRet (r, t) = (t; r)
