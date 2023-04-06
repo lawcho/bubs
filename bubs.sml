@@ -271,22 +271,32 @@ structure bubs :> BUBS = struct
         | Root (* Dummy value used to protect terms from garbage collection *)
 
     (* Get the parents of a Term. *)
-    fun termParRef(LambdaT(Lambda{parents, ...}))   = parents
-    |   termParRef(AppT(App{parents, ...}))         = parents
-    |   termParRef(VarT(Var{parents, ...}))         = parents
-    |   termParRef(PrimT(Prim{parents, ...}))       = parents
-    |   termParRef(Op2T(Op2{parents, ...}))         = parents
+    fun termParRef(LambdaT(Lambda r))   = #parents r
+    |   termParRef(AppT(App r))         = #parents r
+    |   termParRef(VarT(Var r))         = #parents r
+    |   termParRef(PrimT(Prim r))       = #parents r
+    |   termParRef(Op2T(Op2 r))         = #parents r
 
     (* Get the ID of a term *)
-    fun getUniq (VarT (Var       {uniq = uniq,...})) = uniq
-    |   getUniq (LambdaT (Lambda {uniq = uniq,...})) = uniq
-    |   getUniq (AppT (App       {uniq = uniq,...})) = uniq
-    |   getUniq (PrimT(Prim      {uniq = uniq,...})) = uniq
-    |   getUniq (Op2T(Op2        {uniq = uniq,...})) = uniq
+    fun getUniq (VarT (Var       r)) = #uniq r
+    |   getUniq (LambdaT(Lambda  r)) = #uniq r
+    |   getUniq (AppT(App        r)) = #uniq r
+    |   getUniq (PrimT(Prim      r)) = #uniq r
+    |   getUniq (Op2T(Op2        r)) = #uniq r
 
     (* Get & render the ID of a term *)
     fun showUniq (term : Term) = PolyML.makestring (getUniq term)
 
+    (* Peel constructrs off to get at ML record types *)
+    fun unApp (App a) = a
+    fun unLambda (Lambda l) = l
+    fun unOp2 (Op2 op2) = op2
+    fun unPrim (Prim p) = p
+    fun unVar (Var v) = v
+
+    (* Test for null pointer *)
+    fun isNull (ref NONE) = true
+    |   isNull _ = false    
 
     (*  Pretty-printing functions *)
 
@@ -327,15 +337,18 @@ structure bubs :> BUBS = struct
     fun pretty (t : Term) : unit = (
         print (showUniq t ^ " |->    ");
         (case t of 
-                VarT (Var {name = name,...}) => (print ("var '" ^ name ^ "'"); printParents t)
-            |   LambdaT (Lambda {var = Var {name = name,uniq = vu, ...}, body = ref body, ...})
-                    => (print ("\\ " ^ PolyML.makestring vu ^ " ('" ^ name ^ "') . " ^ showUniq body); printParents t; pretty body)
-            |   AppT (App {func = ref func, arg = ref arg,...})
-                    => (print (showUniq func ^ " @ " ^ showUniq arg ^ "      "); printParents t; pretty func; pretty arg)
-            |   PrimT (Prim {data = pv,...})
-                    => (print ("prim " ^ PolyML.makestring pv ^ "   "); printParents t)
-            |   Op2T (Op2 {arg1 = ref arg1, arg2 = ref arg2,...})
-                    => (print (showUniq arg1 ^ " <op2> " ^ showUniq arg2);printParents t;pretty arg1; pretty arg2)
+                VarT (Var v) => (print ("var '" ^ #name v ^ "'"); printParents t)
+            |   LambdaT (Lambda l)
+                    => (print ("\\ " ^ showUniq (VarT (#var l)) ^ " . " ^ showUniq (!(#body l)));
+                    printParents t; pretty (!(#body l)))
+            |   AppT (App a)
+                    => (print (showUniq (!(#func a)) ^ " @ " ^ showUniq (!(#arg a)) ^ "      ");
+                    printParents t; pretty (!(#func a)); pretty (!(#arg a)))
+            |   PrimT (Prim p)
+                    => (print ("prim " ^ PolyML.makestring (#data p) ^ "   "); printParents t)
+            |   Op2T (Op2 op2)
+                    => (print (showUniq (!(#arg1 op2)) ^ " <op2> " ^ showUniq (!(#arg2 op2)));
+                    printParents t;pretty (!(#arg1 op2)); pretty (!(#arg2 op2)))
         )
     )
 
@@ -401,15 +414,15 @@ structure bubs :> BUBS = struct
 
     fun recFreeDeadNode (t : Term) : unit = (
         (case t of  (* Recursively free children *)
-            (AppT(App{func,funcRef,arg,argRef,parents,...})) => (
-                recUnlinkChild (!func, valOf(!funcRef));
-                recUnlinkChild (!arg , valOf(!argRef )))
+            (AppT(App a)) => (
+                recUnlinkChild (!(#func a), valOf(!(#funcRef a)));
+                recUnlinkChild (!(#arg  a), valOf(!(#argRef  a))))
         |   (PrimT _) => (dealloc t) (* no child nodes for prim-data nodes *)
-        |   (Op2T(Op2{arg1,arg1Ref,arg2,arg2Ref,...})) => (
-                recUnlinkChild (!arg1, valOf(!arg1Ref));
-                recUnlinkChild (!arg2, valOf(!arg2Ref)))
-        |   (LambdaT(Lambda{body, bodyRef, parents,...})) => (
-                recUnlinkChild (!body, valOf(!bodyRef)))
+        |   (Op2T(Op2 op2)) => (
+                recUnlinkChild (!(#arg1 op2), valOf(!(#arg1Ref op2)));
+                recUnlinkChild (!(#arg2 op2), valOf(!(#arg2Ref op2))))
+        |   (LambdaT(Lambda l)) => (
+                recUnlinkChild (!(#body l), valOf(!(#bodyRef l))))
         |   (VarT _) => ()
         );
         dealloc t
@@ -420,18 +433,18 @@ structure bubs :> BUBS = struct
     *)
     and recUnlinkChild (term, uplink) = (
         unlinkChild (term, uplink);
-        if not (isSome (!(termParRef term)))
+        if isNull (termParRef term)
         then recFreeDeadNode term
         else ()
         )
 
 
     (* Helper for replaceChild. Inspect an uplink and update the relevant downlink. *)
-    fun installChild(new, (LambdaBody(Lambda{body,...}))) = body := new
-    |   installChild(new, (AppFunc(App{func,...})))       = func := new
-    |   installChild(new, (AppArg(App{arg,...})))         = arg  := new
-    |   installChild(new, (Op2Arg1(Op2{arg1,...})))       = arg1 := new
-    |   installChild(new, (Op2Arg2(Op2{arg2,...})))       = arg2 := new
+    fun installChild(new, (LambdaBody(Lambda r)))   = #body r := new
+    |   installChild(new, (AppFunc(App r)))         = #func r := new
+    |   installChild(new, (AppArg(App r)))          = #arg  r := new
+    |   installChild(new, (Op2Arg1(Op2 r)))         = #arg1 r := new
+    |   installChild(new, (Op2Arg2(Op2 r)))         = #arg2 r := new
     |   installChild(new, Root) = ()
 
     (* Replace one child w/another in the tree.
@@ -571,46 +584,44 @@ structure bubs :> BUBS = struct
     *   lambda to all the parents of L.
     *)
 
-    and upcopyUplink (newChild , LambdaBody(Lambda{var, parents,...})) = upcopyUplinks (lam (var, newChild) , !parents)
+    and upcopyUplink (newChild , LambdaBody(Lambda l)) =
+            upcopyUplinks (lam (#var l, newChild) , !(#parents l))
+
         (* Cloning an app from the func side *)
-    |   upcopyUplink (newChild , AppFunc(App{copy as ref NONE, arg, parents, ...})) = let
-            val new_app = app'(true, newChild, !arg)
-            val _ = copy := SOME new_app
-            in upcopyUplinks (AppT new_app, !parents) end
+    |   upcopyUplink (newChild , AppFunc(App a)) =
+            if isNull (#copy a) (* Copied up into an already-copied app node. Mutate the existing copy & quit. *)
+            then #func (unApp (valOf (!(#copy a)))) := newChild
+            else let
+            val new_app = app'(true, newChild, !(#arg a))
+            val _ = #copy a := SOME new_app
+            in upcopyUplinks (AppT new_app, !(#parents a)) end
 
-        (* Copied up into an already-copied app node. Mutate the existing copy & quit. *)
-    |   upcopyUplink (newChild , AppFunc(App{copy = ref(SOME(App{func,...})), ...})) =
-            func := newChild
-
-        (* Cloning an app from the arg side *)
-    |   upcopyUplink (newChild , AppArg(App{copy as ref NONE, func, parents, ...})) = let
-            val new_app = app'(true, !func, newChild)
-            val _ = copy := SOME new_app
-            in upcopyUplinks (AppT new_app, !parents) end
-
-        (* Copied up into an already-copied app node. Mutate the existing copy & quit. *)
-    |   upcopyUplink (newChild , AppArg(App{copy = ref(SOME(App{arg,...})),...})) =
-            arg := newChild
+        (* Cloning an app from the func side *)
+    |   upcopyUplink (newChild , AppArg(App a)) =
+            if isNull (#copy a) (* Copied up into an already-copied app node. Mutate the existing copy & quit. *)
+            then #arg (unApp (valOf (!(#copy a)))) := newChild
+            else let
+            val new_app = app'(true, !(#func a), newChild)
+            val _ = #copy a := SOME new_app
+            in upcopyUplinks (AppT new_app, !(#parents a)) end
 
         (* Cloning an op2 from the arg1 side *)
-    |   upcopyUplink (newChild , Op2Arg1(Op2{copy as ref NONE, primop, arg2, parents, ...})) = let
-            val new_op2 = op2'(true,primop, newChild, !arg2)
-            val _ = copy := SOME new_op2
-            in upcopyUplinks (Op2T new_op2, !parents) end
-
-        (* Copied up into an already-copied op2 node. Mutate the existing copy & quit. *)
-    |   upcopyUplink (newChild , Op2Arg1(Op2{copy = ref(SOME(Op2{arg1,...})), ...})) =
-            arg1 := newChild
+    |   upcopyUplink (newChild , Op2Arg1(Op2 op2)) =
+            if isNull (#copy op2) (* Copied up into an already-copied op2 node. Mutate the existing copy & quit. *)
+            then #arg1 (unOp2 (valOf (!(#copy op2)))) := newChild
+            else let
+            val new_op2 = op2'(true, #primop op2, newChild, !(#arg2 op2))
+            val _ = #copy op2 := SOME new_op2
+            in upcopyUplinks (Op2T new_op2, !(#parents op2)) end
 
         (* Cloning an op2 from the arg2 side *)
-    |   upcopyUplink (newChild , Op2Arg2(Op2{copy as ref NONE, primop, arg1, parents, ...})) = let
-            val new_op2 = op2'(true,primop, !arg1, newChild)
-            val _ = copy := SOME new_op2
-            in upcopyUplinks (Op2T new_op2, !parents) end
-
-        (* Copied up into an already-copied op2 node. Mutate the existing copy & quit. *)
-    |   upcopyUplink (newChild , Op2Arg2(Op2{copy = ref(SOME(Op2{arg2,...})),...})) =
-            arg2 := newChild
+    |   upcopyUplink (newChild , Op2Arg2(Op2 op2)) =
+            if isNull (#copy op2) (* Copied up into an already-copied op2 node. Mutate the existing copy & quit. *)
+            then #arg2 (unOp2 (valOf (!(#copy op2)))) := newChild
+            else let
+            val new_op2 = op2'(true, #primop op2, !(#arg1 op2), newChild)
+            val _ = #copy op2 := SOME new_op2
+            in upcopyUplinks (Op2T new_op2, !(#parents op2)) end
 
     |   upcopyUplink (newChild , Root) = ()
 
@@ -632,29 +643,34 @@ structure bubs :> BUBS = struct
     *   It traverses the same nodes as the upcopy algorithm itself.
     *)
     (* Clean upwards starting at an @-node *)
-    fun cleanApp (App{copy = ref NONE,...}) = ()   (* Don't recurse up into already-cleared app nodes *)
-    |   cleanApp (App{copy = copy1 as ref (SOME(App{copy = copy2,...})),parents,...}) = (
-            copy1 := NONE;   (* Clear original app's copy-pointer *)
-            copy2 := NONE;   (* Clear app's copy's copy-pointer (it should be pointing to itself) *)
-            cleanUplinks(!parents) (* Recurse into the parents of the @-node *)
-            (* This function does NOT recurse into the parents of the copy,
-            *   since it is following the recursion path of upcopy.
+    fun cleanApp (App a) : unit =
+        if isNull (#copy a) then ()   (* Don't recurse up into already-cleared app nodes *)
+        else (
+            (* Clear the copy-pointers the orignal @-node and its copy. Both should be pointing to the copy *)
+            #copy a := NONE;
+            #copy (unApp (valOf (!(#copy a)))) := NONE;
+            (* Recurse into the parents of the @-node,
+            *   but NOT into the parents of the copy,
+            *   since we are following the recursion path of upcopy.
             *)
+            cleanUplinks (!(#parents a))
         )
-    (* Clean upwards starting at an op2-node *)
-    and cleanOp2 (Op2{copy = ref NONE,...}) = ()   (* Don't recurse up into already-cleared op2 nodes *)
-    |   cleanOp2 (Op2{copy = copy1 as ref (SOME(Op2{copy = copy2,...})),parents,...}) = (
-            copy1 := NONE;   (* Clear original op2's copy-pointer *)
-            copy2 := NONE;   (* Clear op2's copy's copy-pointer (it should be pointing to itself) *)
-            cleanUplinks(!parents) (* Recurse into the parents of the op2-node *)
-            (* This function does NOT recurse into the parents of the copy,
-            *   since it is following the recursion path of upcopy.
+    and cleanOp2 (Op2 op2) : unit =
+        if isNull (#copy op2) then ()   (* Don't recurse up into already-cleared op2 nodes *)
+        else (
+            (* Clear the copy-pointers the orignal op2-node and its copy. Both should be pointing to the copy *)
+            #copy op2 := NONE;
+            #copy (unOp2 (valOf (!(#copy op2)))) := NONE;
+            (* Recurse into the parents of the op2-node,
+            *   but NOT into the parents of the copy,
+            *   since we are following the recursion path of upcopy.
             *)
+            cleanUplinks (!(#parents op2))
         )
     (* Clean upwards starting at a var-node *)
-    and cleanVar(Var{parents=varpars,...}) = cleanUplinks (!varpars)
+    and cleanVar(Var v) = cleanUplinks (!(#parents v))
     (* Clean upwards starting at a λ-node *)
-    and cleanLambda(Lambda{parents,var,...}) = (cleanVar var; cleanUplinks (!parents))
+    and cleanLambda(Lambda l) = (cleanVar (#var l); cleanUplinks (!(#parents l)))
     (* Clean upwards starting at a list of uplinks *)
     and cleanUplinks NONE = ()
     |   cleanUplinks (SOME ps) =    (* loop over parents, spawning an upclean at each *)
@@ -683,7 +699,7 @@ structure bubs :> BUBS = struct
                         argRef, arg = ref argterm,
                         copy = copy,
                         parents, ...})) =
-        let val Lambda {var, body, bodyRef, parents = lampars, ...} = l
+        let val Lambda {var, body, parents = lampars, ...} = l
             val Var{parents = varpars, ...} = var
         in
             (* The lambda has only one parent -- the @-node we're
@@ -697,7 +713,7 @@ structure bubs :> BUBS = struct
             (* Fast path: If lambda's var has no refs,
             * the contractum is just the lambda's body, as-is.
             *)
-            ) else if not (isSome (!varpars)) then (
+            ) else if isNull varpars then (
                 replaceProtectAndCollect(t , !body)
             ) else (
                 (* The standard case. We know two things:
@@ -753,8 +769,8 @@ structure bubs :> BUBS = struct
 
     (* Reduce an op2-headed term; raise an exception if the term isn't op2-headed. *)
     exception NotOp2
-    fun reduceOp2 (t as Op2T(Op2{primop, arg1, arg2,...})) = let
-        val new_t = primop (!arg1, !arg2) (* Invoke the primitive function stored in the op2 node *)
+    fun reduceOp2 (t as Op2T (Op2 op2)) = let
+        val new_t = (#primop op2) (!(#arg1 op2), !(#arg2 op2)) (* Invoke the primitive function stored in the op2 node *)
         in replaceProtectAndCollect(t, new_t) end (* Replace the old term with the new term & free the dead node *)
     |   reduceOp2 _ = raise NotOp2
 
@@ -764,9 +780,8 @@ structure bubs :> BUBS = struct
     *)
     fun whnf (t : Term) : Term = (
         case t of
-            AppT (App{func, arg, ...}) => (
-                whnf(!func);   (* This updates fields in t as a side-effect *)
-                case !func of
+            AppT (App a) => (
+                case whnf(!(#func a)) of (* This updates fields in t as a side-effect *)
                 (* When E1 normalises to λ-node, we reduce (E1 $ E2) and return a pointer to that *)
                     LambdaT _   => whnf(reduceRedex t)
                 (* When E1 fails to normalise to a λ-node, we can't normalise (E1 $ E2) to WHNF, so we stop *)
@@ -780,7 +795,7 @@ structure bubs :> BUBS = struct
         
     
     (* Test a node to see if it holds prim data or not *)
-    fun get_prim (PrimT (Prim {data = pv,... })) = SOME pv
+    fun get_prim (PrimT (Prim p)) = SOME (#data p)
     |   get_prim _ = NONE
 
 end
