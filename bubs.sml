@@ -1045,6 +1045,17 @@ fun op_mul(t1 : Term, t2 : Term) : Term = (
     prim (i1 * i2)
 )
 
+(* A primop for less-than-or-equal testing. Returns a scott-encoded boolean. *)
+fun op_leq(t1 : Term, t2 : Term) : Term = (
+    case whnf t1 of t1' =>
+    case get_prim t1' of NONE => (print "t1' not prim.!\n"; pretty t1'; raise NotPrim) | SOME i1 =>
+    case whnf t2 of t2' =>
+    case get_prim t2' of NONE => (print "t2' not prim.!\n"; pretty t2'; raise NotPrim) | SOME i2 =>
+    if i1 <= i2
+    then build_scott_true ()
+    else build_scott_false ()
+)
+
 (* The term fac = (λ n . (eqz n) 1 (n * {fac} (n - 1)))
 *   Where curly braces denote macro expansion via an op0 node
 *)
@@ -1057,17 +1068,15 @@ fun build_fac () = let
                 app(op0(build_fac),op2(op_sub, var n, prim 1)))
         )) end
 
-(* The term fib = (λ n . (eqz n) 1 ({fib} (n - 1) + {fib} (n - 2)))
+(* The term fib = (λ n . (n ≤ 1) 1 ({fib} (n - 1) + {fib} (n - 2)) )
 *   Where curly braces denote macro expansion via an op0 node
 *)
 fun build_fib () = let
     val n = mkVar "n"
-    in lam(n, app(
-            app(op1(op_eqz, var n), prim 1),
-            op2(op_add,
-                app(op0(build_fib),op2(op_sub, var n, prim 1)),
-                app(op0(build_fib),op2(op_sub, var n, prim 2)))
-        )) end
+    val guard  = app(op2(op_leq, var n, prim 1), prim 1)
+    val rec1  = app(op0(build_fib), op2(op_sub,var n, prim 1))
+    val rec2 = app(op0(build_fib), op2(op_sub,var n, prim 2))
+    in lam(n, app(guard,op2(op_add,rec1,rec2))) end
 
 (* Complete tests *)
 fun test_ex2 () = pretty(whnf(build_ex2()));        (* expected output: printout of (λ x . x) *)
