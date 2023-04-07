@@ -1078,6 +1078,46 @@ fun build_fib () = let
     val rec2 = app(op0(build_fib), op2(op_sub,var n, prim 2))
     in lam(n, app(guard,op2(op_add,rec1,rec2))) end
 
+(* A primop for modulus *)
+fun op_mod(t1 : Term, t2 : Term) : Term = (
+    case whnf t1 of t1' =>
+    case get_prim t1' of NONE => (print "t1' not prim.!\n"; pretty t1'; raise NotPrim) | SOME i1 =>
+    case whnf t2 of t2' =>
+    case get_prim t2' of NONE => (print "t2' not prim.!\n"; pretty t2'; raise NotPrim) | SOME i2 =>
+    prim (i1 mod i2)
+)
+
+(* A primop for division *)
+fun op_div(t1 : Term, t2 : Term) : Term = (
+    case whnf t1 of t1' =>
+    case get_prim t1' of NONE => (print "t1' not prim.!\n"; pretty t1'; raise NotPrim) | SOME i1 =>
+    case whnf t2 of t2' =>
+    case get_prim t2' of NONE => (print "t2' not prim.!\n"; pretty t2'; raise NotPrim) | SOME i2 =>
+    prim (i1 div i2)
+)
+
+(* A primop for integer equality testing. Returns a scott-encoded boolean. *)
+fun op_ieq(t1 : Term, t2 : Term) : Term = (
+    case whnf t1 of t1' =>
+    case get_prim t1' of NONE => (print "t1' not prim.!\n"; pretty t1'; raise NotPrim) | SOME i1 =>
+    case whnf t2 of t2' =>
+    case get_prim t2' of NONE => (print "t2' not prim.!\n"; pretty t2'; raise NotPrim) | SOME i2 =>
+    if i1 = i2
+    then build_scott_true ()
+    else build_scott_false ()
+)
+
+(* The term collatz = (λ n . (n == 1) 1 ( (n % 2 ==0) ({collatz} (n / 2)) ({collatz} (3 * n + 1)) ) )
+*   Where curly braces denote macro expansion via an op0 node
+*)
+fun build_collatz () = let
+    val n = mkVar "n"
+    val guard = app(op2(op_ieq, var n, prim 1), prim 1)
+    val test = op1(op_eqz, op2(op_mod, var n, prim 2))
+    val rec1 = app(op0(build_collatz), op2(op_div, var n, prim 2))
+    val rec2 = app(op0(build_collatz), op2(op_add, op2(op_mul, prim 3, var n), prim 1))
+    in lam(n, app(guard, app(app(test,rec1),rec2))) end
+
 (* Complete tests *)
 fun test_ex2 () = pretty(whnf(build_ex2()));        (* expected output: printout of (λ x . x) *)
 fun test_ex3 () = pretty(whnf(build_ex3()));        (* expected output: printout of (λ x . x) *)
@@ -1096,3 +1136,4 @@ fun test_ex20 () = pretty(whnf(build_ex20()));      (* expected output: printout
 fun test_ex21 () = pretty(whnf(build_ex21()));      (* expected output: printout of (prim 100) *)
 fun test_fac n = pretty(whnf(app(build_fac (), prim n))); (* expected output: printout of (prim <factorial of n>) *)
 fun test_fib n = pretty(whnf(app(build_fib (), prim n))); (* expected output: printout of (prim <nth fibonacci number>) *)
+fun test_collatz n = pretty(whnf(app(build_collatz (), prim n))); (* expected output: printout of (prim 1) *)
