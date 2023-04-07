@@ -192,6 +192,7 @@ signature BUBS = sig
         val get_prim : Term -> PrimValue option     (* Attempt to extract primitive data from a term *)
     (* Functions reated to primitive operations *)
         val op2 : (Term * Term -> Term) * Term * Term -> Term   (* Construct a binary operation term *)
+        val op1 : (Term        -> Term) * Term        -> Term   (* Construct a unary operation term *)
 end
 
 structure bubs :> BUBS = struct
@@ -253,6 +254,12 @@ structure bubs :> BUBS = struct
         parents: ChildCell DL.dl option ref,    (* NONE => node is garbage *)
         uniq: int}
 
+    and Op1Type = Op1 of {
+        primop : Term -> Term,
+        arg: Term ref, argRef : ChildCell DL.dl option ref,   (* NONE only during construction *)
+        parents: ChildCell DL.dl option ref,    (* NONE => node is garbage *)
+        uniq: int}
+
     (* Type of a general UTλC node. *)
     and Term
         = LambdaT of LambdaType
@@ -260,6 +267,7 @@ structure bubs :> BUBS = struct
         | VarT of VarType
         | PrimT of PrimType
         | Op2T of Op2Type
+        | Op1T of Op1Type
 
     (* This tells us what our relationship to our parents is. *)
     and ChildCell
@@ -268,6 +276,7 @@ structure bubs :> BUBS = struct
         | LambdaBody of LambdaType
         | Op2Arg1 of Op2Type
         | Op2Arg2 of Op2Type
+        | Op1Arg of Op1Type
         | Root (* Dummy value used to protect terms from garbage collection *)
 
     (* Get the parents of a Term. *)
@@ -276,6 +285,7 @@ structure bubs :> BUBS = struct
     |   termParRef(VarT(Var r))         = #parents r
     |   termParRef(PrimT(Prim r))       = #parents r
     |   termParRef(Op2T(Op2 r))         = #parents r
+    |   termParRef(Op1T(Op1 r))         = #parents r
 
     (* Get the ID of a term *)
     fun getUniq (VarT (Var       r)) = #uniq r
@@ -283,6 +293,7 @@ structure bubs :> BUBS = struct
     |   getUniq (AppT(App        r)) = #uniq r
     |   getUniq (PrimT(Prim      r)) = #uniq r
     |   getUniq (Op2T(Op2        r)) = #uniq r
+    |   getUniq (Op1T(Op1        r)) = #uniq r
 
     (* Get & render the ID of a term *)
     fun showUniq (term : Term) = PolyML.makestring (getUniq term)
@@ -290,9 +301,10 @@ structure bubs :> BUBS = struct
     (* Peel constructrs off to get at ML record types *)
     fun unApp (App a) = a
     fun unLambda (Lambda l) = l
-    fun unOp2 (Op2 op2) = op2
     fun unPrim (Prim p) = p
     fun unVar (Var v) = v
+    fun unOp2 (Op2 op2) = op2
+    fun unOp1 (Op1 op1) = op1
 
     (* Test for null pointer *)
     fun isNull (ref NONE) = true
@@ -306,6 +318,7 @@ structure bubs :> BUBS = struct
     |   printCC (LambdaBody l)  = print ("LambdaBody " ^ showUniq (LambdaT l))
     |   printCC (Op2Arg1 op2)   = print ("Op2Arg1 "    ^ showUniq (Op2T op2) )
     |   printCC (Op2Arg2 op2)   = print ("Op2Arg2 "    ^ showUniq (Op2T op2) )
+    |   printCC (Op1Arg op1)    = print ("Op1Arg "     ^ showUniq (Op1T op1) )
     |   printCC Root            = print "Root"
 
     (* Print the parents of a term to stdout *)
@@ -349,6 +362,9 @@ structure bubs :> BUBS = struct
             |   Op2T (Op2 op2)
                     => (print (showUniq (!(#arg1 op2)) ^ " <op2> " ^ showUniq (!(#arg2 op2)));
                     printParents t;pretty (!(#arg1 op2)); pretty (!(#arg2 op2)))
+            |   Op1T (Op1 op1)
+                    => (print ("<op1> " ^ showUniq (!(#arg op1)));
+                    printParents t;pretty (!(#arg op1)))
         )
     )
 
@@ -417,13 +433,15 @@ structure bubs :> BUBS = struct
             (AppT(App a)) => (
                 recUnlinkChild (!(#func a), valOf(!(#funcRef a)));
                 recUnlinkChild (!(#arg  a), valOf(!(#argRef  a))))
-        |   (PrimT _) => (dealloc t) (* no child nodes for prim-data nodes *)
-        |   (Op2T(Op2 op2)) => (
-                recUnlinkChild (!(#arg1 op2), valOf(!(#arg1Ref op2)));
-                recUnlinkChild (!(#arg2 op2), valOf(!(#arg2Ref op2))))
         |   (LambdaT(Lambda l)) => (
                 recUnlinkChild (!(#body l), valOf(!(#bodyRef l))))
         |   (VarT _) => ()
+        |   (PrimT _) => ()
+        |   (Op2T(Op2 op2)) => (
+                recUnlinkChild (!(#arg1 op2), valOf(!(#arg1Ref op2)));
+                recUnlinkChild (!(#arg2 op2), valOf(!(#arg2Ref op2))))
+        |   (Op1T(Op1 op1)) => (
+                recUnlinkChild (!(#arg op1), valOf(!(#argRef op1))))
         );
         dealloc t
     )
@@ -445,6 +463,7 @@ structure bubs :> BUBS = struct
     |   installChild(new, (AppArg(App r)))          = #arg  r := new
     |   installChild(new, (Op2Arg1(Op2 r)))         = #arg1 r := new
     |   installChild(new, (Op2Arg2(Op2 r)))         = #arg2 r := new
+    |   installChild(new, (Op1Arg(Op1 r)))          = #arg r  := new
     |   installChild(new, Root) = ()
 
     (* Replace one child w/another in the tree.
@@ -564,6 +583,20 @@ structure bubs :> BUBS = struct
         in op2Node end
     fun op2 (bo : Term * Term -> Term, arg1 : Term, arg2 : Term) : Term = Op2T (op2'(false, bo,arg1,arg2))
 
+    (* Construct a unary operation node on the heap *)
+    fun op1 (primop : Term -> Term, arg : Term) : Term = let
+        val argRef = ref NONE  (* Placholder *)
+        val op1Node = Op1 {
+            arg = ref arg, argRef = argRef,
+            primop = primop,
+            parents = ref NONE,
+            uniq = newUniq ()
+        }
+        val cclink_arg = DL.new (Op1Arg op1Node)
+        val _ = argRef := SOME cclink_arg
+        val _ = addToParents (arg, cclink_arg)
+        in Op1T op1Node end
+
 
     (* upcopyUplink (newChild , parRef) -> unit
     ******************************************************************************
@@ -622,6 +655,11 @@ structure bubs :> BUBS = struct
             val new_op2 = op2'(true, #primop op2, !(#arg1 op2), newChild)
             val _ = #copy op2 := SOME new_op2
             in upcopyUplinks (Op2T new_op2, !(#parents op2)) end
+    
+        (* Cloning an op1 from its only child *)
+    |   upcopyUplink (newChild , Op1Arg(Op1 node)) = let
+            val new_op1 = op1(#primop node, newChild)
+            in upcopyUplinks (new_op1, !(#parents node)) end
 
     |   upcopyUplink (newChild , Root) = ()
 
@@ -655,6 +693,7 @@ structure bubs :> BUBS = struct
             *)
             cleanUplinks (!(#parents a))
         )
+    (* Clean upwards starting at an op2-node *)
     and cleanOp2 (Op2 op2) : unit =
         if isNull (#copy op2) then ()   (* Don't recurse up into already-cleared op2 nodes *)
         else (
@@ -667,6 +706,8 @@ structure bubs :> BUBS = struct
             *)
             cleanUplinks (!(#parents op2))
         )
+    (* Clean upwards starting at an op1-node *)
+    and cleanOp1 (Op1 op1) = cleanUplinks (!(#parents op1))
     (* Clean upwards starting at a var-node *)
     and cleanVar(Var v) = cleanUplinks (!(#parents v))
     (* Clean upwards starting at a λ-node *)
@@ -687,6 +728,7 @@ structure bubs :> BUBS = struct
     |   cleanUplink(LambdaBody l) = cleanLambda l
     |   cleanUplink(Op2Arg1 op2) = cleanOp2 op2
     |   cleanUplink(Op2Arg2 op2) = cleanOp2 op2
+    |   cleanUplink(Op1Arg op1)  = cleanOp1 op1
     |   cleanUplink Root = ()
 
 
@@ -774,6 +816,13 @@ structure bubs :> BUBS = struct
         in replaceProtectAndCollect(t, new_t) end (* Replace the old term with the new term & free the dead node *)
     |   reduceOp2 _ = raise NotOp2
 
+    (* Reduce an op1-headed term; raise an exception if the term isn't op1-headed. *)
+    exception NotOp1
+    fun reduceOp1 (t as Op1T (Op1 op1)) = let
+        val new_t = (#primop op1) (!(#arg op1)) (* Invoke the primitive function stored in the op1 node *)
+        in replaceProtectAndCollect(t, new_t) end (* Replace the old term with the new term & free the dead node *)
+    |   reduceOp1 _ = raise NotOp1
+
     (* Normalise a term to WHNF and return a pointer to the new root.
     * N.B. This function can be called on open terms,
     *   in which case they will evaluate the term as much as possible towards WHNF.
@@ -788,6 +837,7 @@ structure bubs :> BUBS = struct
                 | _  => t
                 )
         |   Op2T _ => whnf (reduceOp2 t)
+        |   Op1T _ => whnf (reduceOp1 t)
         |   _ => t
     )
         
@@ -919,6 +969,35 @@ fun build_ex17 () : Term = let
     val y = mkVar "y"
     in app(app(build_ex16(), lam(x, var x)), lam(y, prim 100)) end
 
+(* Scott-encoded 'true' constructor, (λ kt . λ kf . kt) *)
+fun build_scott_true () : Term = let
+    val kt = mkVar "kt"
+    val kf = mkVar "kf"
+    in lam(kt, lam(kf, var kt)) end
+
+(* Scott-encoded 'false' constructor, (λ kt . λ kf . kf) *)
+fun build_scott_false () : Term = let
+    val kt = mkVar "kt"
+    val kf = mkVar "kf"
+    in lam(kt, lam(kf, var kf)) end
+
+(* Priomop for testing if a number is zero. Returns a scott-encoded boolean *)
+fun op_eqz (t : Term) : Term = (
+    case whnf t of t' =>
+    case get_prim t' of NONE => (print "t' not prim.!\n"; pretty t'; raise NotPrim) | SOME i =>
+    if i = 0
+    then build_scott_true ()
+    else build_scott_false()
+)
+
+(* The term ((eqz 3) 100 200) *)
+fun build_ex20 () =
+    app(app(op1(op_eqz, prim 3),prim 100),prim 200)
+
+(* The term ((eqz (0 + 0)) 100 200) *)
+fun build_ex21 () =
+    app(app(op1(op_eqz, op2(op_add, prim 0, prim 0)),prim 100),prim 200)
+
 
 (* Complete tests *)
 fun test_ex2 () = pretty(whnf(build_ex2()));        (* expected output: printout of (λ x . x) *)
@@ -934,3 +1013,5 @@ fun test_ex13 () = pretty(whnf(build_ex13()));      (* expected output: printout
 fun test_ex14 () = pretty(whnf(build_ex14()));      (* expected output: printout of (prim 70) *)
 fun test_ex15 () = pretty(whnf(build_ex15()));      (* expected output: printout of (prim 20) *)
 fun test_ex17 () = pretty(whnf(build_ex17()));      (* expected output: 1, then printout of (prim 105) *)
+fun test_ex20 () = pretty(whnf(build_ex20()));      (* expected output: printout of (prim 200) *)
+fun test_ex21 () = pretty(whnf(build_ex21()));      (* expected output: printout of (prim 100) *)
