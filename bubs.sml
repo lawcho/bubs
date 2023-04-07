@@ -193,6 +193,7 @@ signature BUBS = sig
     (* Functions reated to primitive operations *)
         val op2 : (Term * Term -> Term) * Term * Term -> Term   (* Construct a binary operation term *)
         val op1 : (Term        -> Term) * Term        -> Term   (* Construct a unary operation term *)
+        val op0 : (unit        -> Term)               -> Term   (* Construct a nullary operation term *)
 end
 
 structure bubs :> BUBS = struct
@@ -260,6 +261,11 @@ structure bubs :> BUBS = struct
         parents: ChildCell DL.dl option ref,    (* NONE => node is garbage *)
         uniq: int}
 
+    and Op0Type = Op0 of {
+        primop : unit -> Term,
+        parents: ChildCell DL.dl option ref,    (* NONE => node is garbage *)
+        uniq: int}
+
     (* Type of a general UTλC node. *)
     and Term
         = LambdaT of LambdaType
@@ -268,6 +274,7 @@ structure bubs :> BUBS = struct
         | PrimT of PrimType
         | Op2T of Op2Type
         | Op1T of Op1Type
+        | Op0T of Op0Type
 
     (* This tells us what our relationship to our parents is. *)
     and ChildCell
@@ -286,6 +293,7 @@ structure bubs :> BUBS = struct
     |   termParRef(PrimT(Prim r))       = #parents r
     |   termParRef(Op2T(Op2 r))         = #parents r
     |   termParRef(Op1T(Op1 r))         = #parents r
+    |   termParRef(Op0T(Op0 r))         = #parents r
 
     (* Get the ID of a term *)
     fun getUniq (VarT (Var       r)) = #uniq r
@@ -294,6 +302,7 @@ structure bubs :> BUBS = struct
     |   getUniq (PrimT(Prim      r)) = #uniq r
     |   getUniq (Op2T(Op2        r)) = #uniq r
     |   getUniq (Op1T(Op1        r)) = #uniq r
+    |   getUniq (Op0T(Op0        r)) = #uniq r
 
     (* Get & render the ID of a term *)
     fun showUniq (term : Term) = PolyML.makestring (getUniq term)
@@ -301,6 +310,7 @@ structure bubs :> BUBS = struct
     (* Peel constructrs off to get at ML record types *)
     fun unApp (App a) = a
     fun unLambda (Lambda l) = l
+    fun unOp2 (Op2 op2) = op2
     fun unPrim (Prim p) = p
     fun unVar (Var v) = v
     fun unOp2 (Op2 op2) = op2
@@ -365,6 +375,8 @@ structure bubs :> BUBS = struct
             |   Op1T (Op1 op1)
                     => (print ("<op1> " ^ showUniq (!(#arg op1)));
                     printParents t;pretty (!(#arg op1)))
+            |   Op0T (Op0 op0)
+                    => (print "op0";printParents t)
         )
     )
 
@@ -442,6 +454,7 @@ structure bubs :> BUBS = struct
                 recUnlinkChild (!(#arg2 op2), valOf(!(#arg2Ref op2))))
         |   (Op1T(Op1 op1)) => (
                 recUnlinkChild (!(#arg op1), valOf(!(#argRef op1))))
+        |   (Op0T(Op0 _)) => ()
         );
         dealloc t
     )
@@ -596,6 +609,14 @@ structure bubs :> BUBS = struct
         val _ = argRef := SOME cclink_arg
         val _ = addToParents (arg, cclink_arg)
         in Op1T op1Node end
+
+    (* Construct a nullary operation node on the heap *)
+    fun op0 (primop : unit -> Term) : Term =
+        Op0T (Op0 {
+            primop = primop,
+            parents = ref NONE,
+            uniq = newUniq()
+        })
 
 
     (* upcopyUplink (newChild , parRef) -> unit
@@ -823,6 +844,13 @@ structure bubs :> BUBS = struct
         in replaceProtectAndCollect(t, new_t) end (* Replace the old term with the new term & free the dead node *)
     |   reduceOp1 _ = raise NotOp1
 
+    (* Reduce an op0-headed term; raise an exception if the term isn't op0-headed. *)
+    exception NotOp0
+    fun reduceOp0 (t as Op0T (Op0 op0)) = let
+        val new_t = (#primop op0)() (* Invoke the primitive function stored in the op0 node *)
+        in replaceProtectAndCollect(t, new_t) end (* Replace the old term with the new term & free the dead node *)
+    |   reduceOp0 _ = raise NotOp0
+
     (* Normalise a term to WHNF and return a pointer to the new root.
     * N.B. This function can be called on open terms,
     *   in which case they will evaluate the term as much as possible towards WHNF.
@@ -838,6 +866,7 @@ structure bubs :> BUBS = struct
                 )
         |   Op2T _ => whnf (reduceOp2 t)
         |   Op1T _ => whnf (reduceOp1 t)
+        |   Op0T _ => whnf (reduceOp0 t)
         |   _ => t
     )
         
@@ -998,6 +1027,47 @@ fun build_ex20 () =
 fun build_ex21 () =
     app(app(op1(op_eqz, op2(op_add, prim 0, prim 0)),prim 100),prim 200)
 
+(* A primop for subtraction *)
+fun op_sub(t1 : Term, t2 : Term) : Term = (
+    case whnf t1 of t1' =>
+    case get_prim t1' of NONE => (print "t1' not prim.!\n"; pretty t1'; raise NotPrim) | SOME i1 =>
+    case whnf t2 of t2' =>
+    case get_prim t2' of NONE => (print "t2' not prim.!\n"; pretty t2'; raise NotPrim) | SOME i2 =>
+    prim (i1 - i2)
+)
+
+(* A primop for multiplication *)
+fun op_mul(t1 : Term, t2 : Term) : Term = (
+    case whnf t1 of t1' =>
+    case get_prim t1' of NONE => (print "t1' not prim.!\n"; pretty t1'; raise NotPrim) | SOME i1 =>
+    case whnf t2 of t2' =>
+    case get_prim t2' of NONE => (print "t2' not prim.!\n"; pretty t2'; raise NotPrim) | SOME i2 =>
+    prim (i1 * i2)
+)
+
+(* The term fac = (λ n . (eqz n) 1 (n * {fac} (n - 1)))
+*   Where curly braces denote macro expansion via an op0 node
+*)
+fun build_fac () = let
+    val n = mkVar "n"
+    in lam(n, app(
+            app(op1(op_eqz, var n), prim 1),
+            op2(op_mul,
+                var n,
+                app(op0(build_fac),op2(op_sub, var n, prim 1)))
+        )) end
+
+(* The term fib = (λ n . (eqz n) 1 ({fib} (n - 1) + {fib} (n - 2)))
+*   Where curly braces denote macro expansion via an op0 node
+*)
+fun build_fib () = let
+    val n = mkVar "n"
+    in lam(n, app(
+            app(op1(op_eqz, var n), prim 1),
+            op2(op_add,
+                app(op0(build_fib),op2(op_sub, var n, prim 1)),
+                app(op0(build_fib),op2(op_sub, var n, prim 2)))
+        )) end
 
 (* Complete tests *)
 fun test_ex2 () = pretty(whnf(build_ex2()));        (* expected output: printout of (λ x . x) *)
@@ -1015,3 +1085,5 @@ fun test_ex15 () = pretty(whnf(build_ex15()));      (* expected output: printout
 fun test_ex17 () = pretty(whnf(build_ex17()));      (* expected output: 1, then printout of (prim 105) *)
 fun test_ex20 () = pretty(whnf(build_ex20()));      (* expected output: printout of (prim 200) *)
 fun test_ex21 () = pretty(whnf(build_ex21()));      (* expected output: printout of (prim 100) *)
+fun test_fac n = pretty(whnf(app(build_fac (), prim n))); (* expected output: printout of (prim <factorial of n>) *)
+fun test_fib n = pretty(whnf(app(build_fib (), prim n))); (* expected output: printout of (prim <nth fibonacci number>) *)
