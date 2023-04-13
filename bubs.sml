@@ -283,7 +283,6 @@ structure bubs :> BUBS = struct
         | Op2Arg1 of Op2Type
         | Op2Arg2 of Op2Type
         | Op1Arg of Op1Type
-        | Root (* Dummy value used to protect terms from garbage collection *)
 
     (* Get the parents of a Term. *)
     fun termParRef(LamT(Lam r))         = #parents r
@@ -328,7 +327,6 @@ structure bubs :> BUBS = struct
     |   printCC (Op2Arg1 op2)   = print ("Op2Arg1 "    ^ showUniq (Op2T op2) )
     |   printCC (Op2Arg2 op2)   = print ("Op2Arg2 "    ^ showUniq (Op2T op2) )
     |   printCC (Op1Arg op1)    = print ("Op1Arg "     ^ showUniq (Op1T op1) )
-    |   printCC Root            = print "Root"
 
     (* Print the parents of a term to stdout *)
     fun printParents (term : Term) =
@@ -485,7 +483,6 @@ structure bubs :> BUBS = struct
     |   installChild(new, (Op2Arg1(Op2 r)))         = #arg1 r := new
     |   installChild(new, (Op2Arg2(Op2 r)))         = #arg2 r := new
     |   installChild(new, (Op1Arg(Op1 r)))          = #arg r  := new
-    |   installChild(new, Root) = ()
 
     (* Replace one child w/another in the tree.
     * - 'uplinksOfOld' is the parent dll for some term -- the old term.
@@ -512,10 +509,24 @@ structure bubs :> BUBS = struct
     *)
     fun replaceProtectAndCollect (old , new) = let
         val _ = replaceChild (!(termParRef old), new);
-        val rootCell = DL.new Root  (* Create temporary root uplink (it's safe to alloc. this on the stack) *)
-        val _ = addToParents(new, rootCell);    (* Protect 'new' from GC using the root uplink *)
+        (* Create a temporary term conaiting 'new', to protect it from deletion *)
+        val tmp = {
+            var = Var {name = "TEMPORARY", parents = ref NONE, uniq = ~1},
+            body = ref new, bodyRef = ref NONE,
+            parents = ref NONE,
+            copy = ref NONE,
+            uniq = ~2
+            }
+        val cclink = DL.new (LamBody (Lam tmp))
+        val _ = #bodyRef tmp := SOME cclink
+        val _ = addToParents(new, cclink)
+
+    
         val _ = recFreeDeadNode old;            (* Collect old *)
-        val _ = unlinkChild(new, rootCell);     (* Remove the temporary root uplink from 'new' *)
+        (* Remove tmp from the parent-list of 'new' *)
+        val _ = unlinkChild(new, cclink);
+        (* GC the temporry term *)
+        val _ = dealloc(LamT (Lam tmp))
         in new end
 
     (* Function for generating globally unique fresh numbers *)
@@ -704,8 +715,6 @@ structure bubs :> BUBS = struct
             val new_op1 = op1(#primop node, newChild)
             in upcopyUplinks (new_op1, !(#parents node)) end
 
-        | Root => ()
-
     (* Upcopy from a list of uplinks *)
     and upcopyUplinks (newChild , NONE) = ()    (* No uplinks in list => stop recursion *)
     |   upcopyUplinks (newChild , SOME ps) =    (* Have uplinks => loop over them, spawning upcopies at each *)
@@ -785,7 +794,6 @@ structure bubs :> BUBS = struct
     |   cleanUplink(Op2Arg1 op2) = cleanOp2 op2
     |   cleanUplink(Op2Arg2 op2) = cleanOp2 op2
     |   cleanUplink(Op1Arg op1)  = cleanOp1 op1
-    |   cleanUplink Root = ()
 
 
     fun traceRet (r, t) = (t; r)
