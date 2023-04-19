@@ -1,0 +1,4 @@
+*.o
+*.out
+*.run
+.gdb_history
