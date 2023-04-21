@@ -2,3 +2,4 @@
 *.out
 *.run
 .gdb_history
+build/*

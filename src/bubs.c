@@ -13,7 +13,7 @@
 #include<stddef.h>
 #include<stdio.h>
 
-#ifdef DEBUG
+#ifdef CONFIG_ENABLE_DEBUG_PRINTF
 #define DEBUG_PRINTF(...) printf(__VA_ARGS__)
 #else
 #define DEBUG_PRINTF(...)
@@ -642,7 +642,7 @@ void dump_dot_Term(Term* t){
     if (t->parents != NULL) {  // print parent pointer
         printf("n%p:parents:c -> n%p:", t, ccParent(t->parents));
         printCCTag(t->parents->tag);
-        printf("_child [constraint=false, color=brown];\n");
+        printf("_child [constraint=false, weight=0, color=brown];\n");
     }
 }
 
@@ -709,6 +709,7 @@ void recUnlinkChild (ChildCell* cc) {
 
 void recFreeDeadNode (Term* t) {
     assert(t->parents == NULL);
+    DEBUG_PRINTF("Recursively freeing dead node at %p.\n", t);
     switch (t->tag) {
     case LamT:  {
         LamType* lamNode = term2Lam(t);
@@ -740,6 +741,7 @@ void recFreeDeadNode (Term* t) {
 //  then free 'old' recursively (but avoid freeing 'new').
 //  Returns 'new'.
 Term* replaceProtectAndCollect (Term* old , Term* new) {
+    DEBUG_PRINTF("Entering replaceProtectAndCollect(%p,%p)\n",old,new);
     assert(old != NULL);
     assert(new != NULL);
 
@@ -753,6 +755,7 @@ Term* replaceProtectAndCollect (Term* old , Term* new) {
     recFreeDeadNode(old);
 
     unlinkChild(&cc);    // Clean up temporary ChildCell
+    DEBUG_PRINTF("Leaving replaceProtectAndCollect(%p,%p)\n",old,new);
     return new;
 }
 
@@ -925,6 +928,7 @@ void cleanUplinks(ChildCell* cc) {
 
 // Contract a β-redex in-place (and return a pointer for convenience)
 Term* reduceRedex(Term* t) {
+    DEBUG_PRINTF("Entering reduceRedex(%p)\n",t);
 
     // Get pointers to relevant sub-terms
     assert(t->tag == AppT);
@@ -937,17 +941,18 @@ Term* reduceRedex(Term* t) {
 
     Term* result;
 
-    // Single-parent fast path
     if (dl_is_singleton(lampars)) {
+        DEBUG_PRINTF("Single-parent fast path.\n");
         replaceTerm(varterm, argterm);
         result = l->lamBody.child;
     }
-    // Unused-variable fast path
     else if (varterm->parents == NULL) {
+        DEBUG_PRINTF("Unused-variable fast path.\n");
         result = l->lamBody.child;
     }
-    // General case. See SML source for comments on the algorithm.
     else {
+        DEBUG_PRINTF("General case of β-reduction.\n");
+
         // Stack-allocate a λ-node to collect the result of upcopy
         LamType tmp;
         tmp.header.parents = NULL;
@@ -973,36 +978,43 @@ Term* reduceRedex(Term* t) {
         // Remove tmp from result's parent list
         result->parents = dl_remove(&(tmp.lamBody));
     }
+    DEBUG_PRINTF("Leaving reduceRedex(%p), about to replace %p with %p\n",t, t, result);
     return replaceProtectAndCollect(t, result);
 }
 
 // Reduce an op2-headed term
 Term* reduceOp2 (Term* t){
+    DEBUG_PRINTF("Entering reduceOp2(%p)\n",t);
     assert(t->tag == Op2T);
     Op2Type* op2Node = term2Op2(t);
     // invoke function pointer stored in op2Node
     Term* new_term = (op2Node->primop)(
         &(op2Node->op2Arg1.child),
         &(op2Node->op2Arg2.child));
+    DEBUG_PRINTF("Leaving reduceOp2(%p), but first replacing %p with %p\n",t, t, new_term);
     return replaceProtectAndCollect (t, new_term);
 }
 
 // Reduce an op1-headed term
 Term* reduceOp1 (Term* t){
+    DEBUG_PRINTF("Entering reduceOp1(%p)\n",t);
     assert(t->tag == Op1T);
     Op1Type* op1Node = term2Op1(t);
     // invoke function pointer stored in op1Node
     Term* new_term = (op1Node->primop)(
         &(op1Node->op1Arg.child));
+    DEBUG_PRINTF("Leaving reduceOp1(%p), but first replacing %p with %p\n",t, t, new_term);
     return replaceProtectAndCollect (t, new_term);
 }
 
 // Reduce an op0-headed term
 Term* reduceOp0 (Term* t){
+    DEBUG_PRINTF("Entering reduceOp0(%p)\n",t);
     assert(t->tag == Op0T);
     Op0Type* op0Node = term2Op0(t);
     // invoke function pointer stored in op1Node
     Term* new_term = (op0Node->primop)();
+    DEBUG_PRINTF("Leaving reduceOp0(%p), but first replacing %p with %p\n",t, t, new_term);
     return replaceProtectAndCollect (t, new_term);
 }
 
@@ -1015,28 +1027,32 @@ unsigned int whnf_count = 0;
 
 // Reduce a term to weak-head normal form
 Term* whnf(Term* t) {
+    DEBUG_PRINTF("Entering whnf(%p)\n",t);
     assert(t != NULL);
-    #ifdef DEBUG
-        if(global_print_root == NULL) {global_print_root = lam(mkVar(),t);}
-        DEBUG_PRINTF("// Call # %d of whnf()\n",++whnf_count);
+    #ifdef CONFIG_DUMP_DOT_ON_WHNF
+        printf("// BEGIN DOT DUMP\n");
+        printf("// Call # %d of whnf()\n",++whnf_count);
         dump_dot(global_print_root,t);
+        printf("// END DOT DUMP\n");
     #endif
     switch (t->tag) {
     case AppT:  {
+        DEBUG_PRINTF("About to normalise fun-child of @-node %p\n",t);
         Term* norm_fun = whnf(term2App(t)->appFun.child);
         if (norm_fun->tag == LamT) {
-            // When E1 normalises to λ-node,
-            // we can progress by β-contracting (E1 $ E2)
+            DEBUG_PRINTF("Fun-child of @-node %p normalised to a λ-node, about to β-contract.\n",t);
             return whnf(reduceRedex (t));
         } else {
-            // When E1 fails to normalise to a λ-node,
-            // this blocks normalisation of (E1 $ E2)
+            DEBUG_PRINTF("Fun-child of @-node %p didn't normalise to a λ-node, normalisation of @-node is blocked.\n",t);
             return t;
         }}
     case Op2T:  {return whnf(reduceOp2(t));}
     case Op1T:  {return whnf(reduceOp1(t));}
     case Op0T:  {return whnf(reduceOp0(t));}
-    default: {return t;}
+    default: {
+        DEBUG_PRINTF("Normalisation of %p blocked or completed, returning it without further modification.\n",t);
+        return t;
+        }
     }
 }
 
@@ -1344,13 +1360,9 @@ void test_ex26(void) {pretty(whnf(build_ex26()));}  // expected output: printout
 /////////////////
 
 int main (void) {
-    // test_ex10();
-    printf("fib 1\n");test_fib(1);
-    printf("fib 2\n");test_fib(2);
-    printf("fib 3\n");test_fib(3);
-    printf("fib 4\n");test_fib(4);
-    printf("fib 5\n");test_fib(5);
-    printf("fib 6\n");test_fib(6);
+    Term* t = build_ex26();
+    global_print_root = lam(mkVar(), t);    // make t a root to avoid GC bugs
+    whnf(t);
     return 0;
 }
 

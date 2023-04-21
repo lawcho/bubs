@@ -1,0 +1,58 @@
+<!-- HTML+JS script for viewing BUSB heap dumps
+    Based on d3-graphviz's 'demo.html' example, and on
+    https://gist.github.com/magjac/28a70231e2c9dddb84b3b20f450a215f
+-->
+<!DOCTYPE html>
+<meta charset="utf-8">
+<body>
+<!-- Javascript library dependencies, loaded from the web -->
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script src="https://unpkg.com/@hpcc-js/wasm@0.3.11/dist/index.min.js"></script>
+<script src="https://unpkg.com/d3-graphviz@3.0.5/build/d3-graphviz.js"></script>
+<!-- Graph data, loaded from the 'server' (i.e. local filesystem)
+    This script is exected to set up a Javascript variable called 'frames',
+    containing an array of Graphviz DOT source strings.
+-->
+<script src="../build/trace.data.js"></script>
+
+<!-- HTML+Javascript glue -->
+<button onclick="prevFrame()">Go back a step</button>
+<button onclick="nextFrame()">Go forwards a step</button>
+<div id="graph" style="text-align: center; border: 1px solid lightgray;"></div>
+<script>
+var graphviz = d3.select("#graph").graphviz()
+.transition(function () {
+    return d3.transition("main")
+    .ease(d3.easeLinear)
+    .delay(500)
+    .duration(1500);
+})
+.on("initEnd", render);
+    
+var frameIndex = 0;
+function render() {
+    graphviz.renderDot(frames[frameIndex]);
+}
+
+function nextFrame() {
+    var nextIndex = frameIndex + 1;
+    if (nextIndex >= frames.length) {
+        alert("Last frame in animation, can't go forwards futher!");
+    } else {
+        frameIndex = nextIndex;
+        render();
+    }
+}
+
+function prevFrame() {
+    var nextIndex = frameIndex - 1;
+    if (nextIndex < 0) {
+        alert("First frame in animation, can't go back futher!");
+    } else {
+        frameIndex = nextIndex;
+        render();
+    }
+}
+</script>
+</body>
+</html>
