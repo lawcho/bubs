@@ -52,6 +52,7 @@ struct ChildCell_s {
 struct Term_s {
     TermTag tag;        // indicates the class of the enclosing struct
     ChildCell* parents; // NULL => node is garbage
+    bool visited;  // used to avoid over-pretty-printing
 };
 
 typedef struct VarType_s VarType;
@@ -225,6 +226,22 @@ void dl_union (ChildCell* a, ChildCell* c) {
     dl_assert_wf(d);
 }
 
+// Assert that two ChildCell s are on the same DLL
+void dl_assert_member(ChildCell* a, ChildCell* b) {
+    dl_assert_wf(a); assert(a != NULL);
+    dl_assert_wf(b); assert(b != NULL);
+    bool found = false;
+    ChildCell* i = a;
+    do {
+        if (i == b) {
+            found = true;
+            break;
+        }
+        i = i->succ;
+    } while(i != a);
+    assert (found);
+}
+
 ///////////////////////////////////////////////
 // Tests for the ChildCell manipulating code //
 ///////////////////////////////////////////////
@@ -308,19 +325,6 @@ void addToParents(Term* node, ChildCell* cc) {
     }
 }
 
-// Replace the term poitned to by a ChildCell.
-// Updates parent-lists, for both the old term and its replacement
-// Precondition: cc is not in new's parent list
-// Precondition: cc is not a singleton or NULL
-void replaceCC(ChildCell* cc, Term* new){
-    assert(cc != NULL);
-    assert(!dl_is_singleton(cc));
-    cc->child->parents = dl_remove(cc); // update cc->child's parent list
-    assert(dl_is_singleton(cc));
-    cc->child = new;
-    addToParents(new,cc);
-}
-
 // Replace one term w/another in the DAG.
 // Leaves the old term dead.
 // Precondition: the terms are distinct
@@ -342,12 +346,19 @@ void replaceTerm(Term* old, Term* new) {
 // Node constructors //
 ///////////////////////
 
+// Initialise the fields of a Term header
+void init_Term(TermTag tag, Term* n){
+    n->tag = tag;
+    n->visited = false;
+    n->parents = NULL;
+}
+
 // Construct a var-node on the heap
 // Under the hood, this allocates a surrounding λ-node too.
 VarType* mkVar (void) {
     LamType* lamNode = malloc(sizeof(LamType));
-    lamNode->lamVar.header.tag = VarT;
-    lamNode->lamVar.header.parents = NULL;
+
+    init_Term(VarT, &(lamNode->lamVar.header));
     return &(lamNode->lamVar);
 }
 
@@ -355,8 +366,7 @@ VarType* mkVar (void) {
 LamType* mkLam (bool selfRef, VarType* var, Term* body) {
     LamType* lamNode = container_of(var, LamType, lamVar);
 
-    lamNode->header.tag = LamT;
-    lamNode->header.parents = NULL;
+    init_Term(LamT, &(lamNode->header));
     lamNode->copy = (selfRef ? lamNode : NULL);
     // lamNode->lamVar already initialized by mkVar
     dl_init(LamBody, body, &(lamNode->lamBody));
@@ -368,8 +378,8 @@ LamType* mkLam (bool selfRef, VarType* var, Term* body) {
 // Construct an @-node on the heap
 AppType* mkApp (bool selfRef, Term* fun, Term* arg) {
     AppType* appNode = malloc(sizeof(AppType));
-    appNode->header.tag = AppT;
-    appNode->header.parents = NULL;
+
+    init_Term(AppT, &(appNode->header));
     appNode->copy = (selfRef ? appNode : NULL);
     dl_init(AppFun, fun, &(appNode->appFun));
     dl_init(AppArg, arg, &(appNode->appArg));
@@ -380,8 +390,8 @@ AppType* mkApp (bool selfRef, Term* fun, Term* arg) {
 
 Op2Type* mkOp2 (bool selfRef, Term* (*primop)(Term** , Term**), Term* arg1, Term* arg2) {
     Op2Type* op2Node = malloc(sizeof(Op2Type));
-    op2Node->header.tag = Op2T;
-    op2Node->header.parents = NULL;
+
+    init_Term(Op2T, &(op2Node->header));
     op2Node->copy = (selfRef ? op2Node : NULL);
     op2Node->primop = primop;
     dl_init(Op2Arg1, arg1, &(op2Node->op2Arg1));
@@ -393,8 +403,8 @@ Op2Type* mkOp2 (bool selfRef, Term* (*primop)(Term** , Term**), Term* arg1, Term
 
 Op1Type* mkOp1 (Term* (*primop)(Term**), Term* arg) {
     Op1Type* op1Node = malloc(sizeof(Op1Type));
-    op1Node->header.tag = Op1T;
-    op1Node->header.parents = NULL;
+
+    init_Term(Op1T, &(op1Node->header));
     op1Node->primop = primop;
     dl_init(Op1Arg, arg, &(op1Node->op1Arg));
     addToParents(arg, &(op1Node->op1Arg));
@@ -403,16 +413,16 @@ Op1Type* mkOp1 (Term* (*primop)(Term**), Term* arg) {
 
 Op0Type* mkOp0 (Term* (*primop)(void)) {
     Op0Type* op0Node = malloc(sizeof(Op0Type));
-    op0Node->header.tag = Op0T;
-    op0Node->header.parents = NULL;
+
+    init_Term(Op0T, &(op0Node->header));
     op0Node->primop = primop;
     return op0Node;
 }
 
 PrimType* mkPrim (unsigned int primData) {
     PrimType* primNode = malloc(sizeof(PrimType));
-    primNode->header.tag = PrimT;
-    primNode->header.parents = NULL;
+
+    init_Term(PrimT, &(primNode->header));
     primNode->primData = primData;
     return primNode;
 }
@@ -472,72 +482,118 @@ void printParents (Term* t) {
     printf ("])\n");
 }
 
-// Print a term to stdout (pre-order depth-first traversal)
-void pretty (Term* t) {
-    printf("%12p |->    ",t); // print node address
-    switch (t->tag) {       // print node using λ-calculus syntax
-        case VarT: {
-            printf("var%67s","");
-            printParents(t);
-            break;}
-        case LamT: {
-            LamType* lamNode = term2Lam(t);
-            printf("\\ %12p . %12p%12s(copy = %12p)    ",
-                &(lamNode->lamVar.header),
-                lamNode->lamBody.child,
-                "",
-                lamNode->copy
-                );
-            printParents(t);
-            pretty(lamNode->lamBody.child);
-            break;}
-        case AppT: {
-            AppType* appNode = term2App(t);
-            printf("%12p @ %12p%14s(copy = %12p)    ",
-                appNode->appFun.child,
-                appNode->appArg.child,
-                "",
-                appNode->copy
-                );
-            printParents(t);
-            pretty(appNode->appFun.child);
-            pretty(appNode->appArg.child);
-            break;}
-        case Op2T: {
-            Op2Type* op2Node = term2Op2(t);
-            printf("%12p <op2> %12p%12s(copy = %12p)    ",
-                op2Node->op2Arg1.child,
-                op2Node->op2Arg2.child,
-                "",
-                op2Node->copy
-                );
-            printParents(t);
-            pretty(op2Node->op2Arg1.child);
-            pretty(op2Node->op2Arg2.child);
-            break;}
-        case Op1T: {
-            Op1Type* op1Node = term2Op1(t);
-            printf("<op1> %12p%50s",
-                op1Node->op1Arg.child,
-                ""
-                );
-            printParents(t);
-            pretty(op1Node->op1Arg.child);
-            break;}
-        case Op0T: {
-            printf("<op0>%60s","");
-            printParents(t);
-            break;}
-        case PrimT: {
-            PrimType* primNode = term2Prim(t);
-            printf("prim %u%50s",
-                primNode->primData,
-                "");
-            printParents(t);
-            break;}
-        default: {assert(false);}
+// Print a term to stdout (pre-order depth-first traversal w/ cut-off).
+// Tests & sets the 'visited' flag
+void pretty_set (Term* t) {
+    if (t->visited) {
+        return;
+    } else {
+        t->visited = true;
+        printf("%12p |->    ",t); // print node address
+        switch (t->tag) {       // print node using λ-calculus syntax
+            case VarT: {
+                printf("var%67s","");
+                printParents(t);
+                break;}
+            case LamT: {
+                LamType* lamNode = term2Lam(t);
+                printf("\\ %12p . %12p%12s(copy = %12p)    ",
+                    &(lamNode->lamVar.header),
+                    lamNode->lamBody.child,
+                    "",
+                    lamNode->copy
+                    );
+                printParents(t);
+                pretty_set(lamNode->lamBody.child);
+                break;}
+            case AppT: {
+                AppType* appNode = term2App(t);
+                printf("%12p @ %12p%14s(copy = %12p)    ",
+                    appNode->appFun.child,
+                    appNode->appArg.child,
+                    "",
+                    appNode->copy
+                    );
+                printParents(t);
+                pretty_set(appNode->appFun.child);
+                pretty_set(appNode->appArg.child);
+                break;}
+            case Op2T: {
+                Op2Type* op2Node = term2Op2(t);
+                printf("%12p <op2> %12p%12s(copy = %12p)    ",
+                    op2Node->op2Arg1.child,
+                    op2Node->op2Arg2.child,
+                    "",
+                    op2Node->copy
+                    );
+                printParents(t);
+                pretty_set(op2Node->op2Arg1.child);
+                pretty_set(op2Node->op2Arg2.child);
+                break;}
+            case Op1T: {
+                Op1Type* op1Node = term2Op1(t);
+                printf("<op1> %12p%50s",
+                    op1Node->op1Arg.child,
+                    ""
+                    );
+                printParents(t);
+                pretty_set(op1Node->op1Arg.child);
+                break;}
+            case Op0T: {
+                printf("<op0>%60s","");
+                printParents(t);
+                break;}
+            case PrimT: {
+                PrimType* primNode = term2Prim(t);
+                printf("prim %u%50s",
+                    primNode->primData,
+                    "");
+                printParents(t);
+                break;}
+            default: {assert(false);}
+        }
     }
+}
+// Reset the 'visited' flag set by pretty_set.
+void pretty_clear (Term* t) {
+    if (!t->visited) {
+        return;
+    } else {
+        t->visited = false;
+        switch (t->tag) {
+            case VarT: {break;}
+            case LamT: {
+                LamType* lamNode = term2Lam(t);
+                pretty_clear(lamNode->lamBody.child);
+                break;}
+            case AppT: {
+                AppType* appNode = term2App(t);
+                pretty_clear(appNode->appFun.child);
+                pretty_clear(appNode->appArg.child);
+                break;}
+            case Op2T: {
+                Op2Type* op2Node = term2Op2(t);
+                pretty_clear(op2Node->op2Arg1.child);
+                pretty_clear(op2Node->op2Arg2.child);
+                break;}
+            case Op1T: {
+                Op1Type* op1Node = term2Op1(t);
+                pretty_clear(op1Node->op1Arg.child);
+                break;}
+            case Op0T: {break;}
+            case PrimT: {break;}
+            default: {assert(false);}
+        }
+    }
+}
 
+// Pretty-print a term
+void pretty(Term* t){
+    assert(t != NULL);
+    assert(!t->visited);// should hold for sub-terms too, but this is hard to test
+    pretty_set(t);
+    assert(t->visited); // should hold for sub-terms too, but this is hard to test
+    pretty_clear(t);
 }
 
 
@@ -561,88 +617,134 @@ void dump_dot_CC_edges(ChildCell* cc){
 
     // Print (cc->child)
     printf("n%p:",ccParent(cc));printCCTag(cc->tag);printf("_child:c ->");
-    printf("n%p:parents [color=black];\n", cc->child);
+    printf("n%p:parents [color=black id=cc%p_child];\n", cc->child, cc);
 
     // Print (cc->pred)
     ChildCell* ccp = cc->pred;
     printf("n%p:", ccParent(cc ));printCCTag(cc ->tag);printf("_pred -> ");
-    printf("n%p:", ccParent(ccp));printCCTag(ccp->tag);printf("_succ [constraint=false,color=lightgrey];\n");
+    printf("n%p:", ccParent(ccp));printCCTag(ccp->tag);printf("_succ ");
+    printf("[constraint=false,color=lightgrey, id=cc%p_pred];\n",cc);
 
     // Print (cc->succ)
     ChildCell* ccs = cc->succ;
     printf("n%p:", ccParent(cc ));printCCTag(cc ->tag);printf("_succ -> ");
-    printf("n%p:", ccParent(ccs));printCCTag(ccs->tag);printf("_pred [constraint=false,color=lightgrey];\n");
+    printf("n%p:", ccParent(ccs));printCCTag(ccs->tag);printf("_pred ");
+    printf("[constraint=false,color=lightgrey, id=cc%p_succ];\n",cc);
 }
 
-// Helper for dump_dot
-void dump_dot_Term(Term* t){
+// Dump graphviz DOT code to print a term. Recursive.
+// Tests & sets the 'visited' flag
+void dump_dot_Term_set(Term* t){
     assert(t != NULL);
-    switch (t->tag){
-        case VarT: {
-            printf("n%p [label =\"VarT | <parents>\"];\n",t);
-            printf("\n");
-            break;}
-        case LamT: {
-            LamType* lamNode = term2Lam(t);
-            printf("n%p [label =\"LamT | <parents> | <copy> | <lamVar> ",t);
-            dump_dot_CC_node(&(lamNode->lamBody));
-            printf("\"];\n");
-            dump_dot_Term(lamNode->lamBody.child);
-            dump_dot_Term(&(lamNode->lamVar.header));
-            printf("\n");
-            dump_dot_CC_edges(&(lamNode->lamBody));
-            printf("n%p:lamVar -> n%p [headclip=true, color=darkgoldenrod, dir=none];\n",t,&(lamNode->lamVar.header));
-            break;}
-        case AppT: {
-            AppType* appNode = term2App(t);
-            printf("n%p [label =\"AppT | <parents> | <copy> ",t);
-            dump_dot_CC_node(&(appNode->appFun));
-            dump_dot_CC_node(&(appNode->appArg));
-            printf("\"];\n");
-            dump_dot_Term(appNode->appFun.child);
-            dump_dot_Term(appNode->appArg.child);
-            printf("\n");
-            dump_dot_CC_edges(&(appNode->appFun));
-            dump_dot_CC_edges(&(appNode->appArg));
-            break;}
-        case Op2T: {
-            Op2Type* op2Node = term2Op2(t);
-            printf("n%p [label =\"Op2T | <parents> | <copy> | %p ",t, op2Node->primop);
-            dump_dot_CC_node(&(op2Node->op2Arg1));
-            dump_dot_CC_node(&(op2Node->op2Arg2));
-            printf("\"];\n");
-            dump_dot_Term(op2Node->op2Arg1.child);
-            dump_dot_Term(op2Node->op2Arg2.child);
-            printf("\n");
-            dump_dot_CC_edges(&(op2Node->op2Arg1));
-            dump_dot_CC_edges(&(op2Node->op2Arg2));
-            break;}
-        case Op1T: {
-            Op1Type* op1Node = term2Op1(t);
-            printf("n%p [label =\"Op1T | <parents> | <copy> | %p ",t, op1Node->primop);
-            dump_dot_CC_node(&(op1Node->op1Arg));
-            printf("\"];\n");
-            dump_dot_Term(op1Node->op1Arg.child);
-            printf("\n");
-            dump_dot_CC_edges(&(op1Node->op1Arg));
-            break;}
-        case Op0T: {
-            Op0Type* op0Node = term2Op0(t);
-            printf("n%p [label =\"Op0T | <parents> | <copy> | %p \"];\n",t, op0Node->primop);
-            printf("\n");
-            break;}
-        case PrimT: {
-            PrimType* primNode = term2Prim(t);
-            printf("n%p [label =\"PrimT | <parents> | <primData> %d \"];\n",t, primNode->primData);
-            printf("\n");
-            break;}
-        default: {assert(false);}
+    if (t->visited) {
+        return;
+    } else {
+        t->visited = true;
+        switch (t->tag){
+            case VarT: {
+                printf("n%p [label =\"VarT | <parents>\", id=n%p];\n",t,t);
+                printf("\n");
+                break;}
+            case LamT: {
+                LamType* lamNode = term2Lam(t);
+                printf("n%p [label =\"LamT | <parents> | <copy> | <lamVar> ",t);
+                dump_dot_CC_node(&(lamNode->lamBody));
+                printf("\", id=n%p];\n",t);
+                dump_dot_Term_set(lamNode->lamBody.child);
+                dump_dot_Term_set(&(lamNode->lamVar.header));
+                printf("\n");
+                dump_dot_CC_edges(&(lamNode->lamBody));
+                printf("n%p:lamVar -> n%p [headclip=true, color=darkgoldenrod, dir=none, id=n%p_lamvar];\n",
+                t,&(lamNode->lamVar.header),t);
+                break;}
+            case AppT: {
+                AppType* appNode = term2App(t);
+                printf("n%p [label =\"AppT | <parents> | <copy> ",t);
+                dump_dot_CC_node(&(appNode->appFun));
+                dump_dot_CC_node(&(appNode->appArg));
+                printf("\", id=n%p];\n",t);
+                dump_dot_Term_set(appNode->appFun.child);
+                dump_dot_Term_set(appNode->appArg.child);
+                printf("\n");
+                dump_dot_CC_edges(&(appNode->appFun));
+                dump_dot_CC_edges(&(appNode->appArg));
+                break;}
+            case Op2T: {
+                Op2Type* op2Node = term2Op2(t);
+                printf("n%p [label =\"Op2T | <parents> | <copy> | %p ",t, op2Node->primop);
+                dump_dot_CC_node(&(op2Node->op2Arg1));
+                dump_dot_CC_node(&(op2Node->op2Arg2));
+                printf("\", id=n%p];\n",t);
+                dump_dot_Term_set(op2Node->op2Arg1.child);
+                dump_dot_Term_set(op2Node->op2Arg2.child);
+                printf("\n");
+                dump_dot_CC_edges(&(op2Node->op2Arg1));
+                dump_dot_CC_edges(&(op2Node->op2Arg2));
+                break;}
+            case Op1T: {
+                Op1Type* op1Node = term2Op1(t);
+                printf("n%p [label =\"Op1T | <parents> | <copy> | %p ",t, op1Node->primop);
+                dump_dot_CC_node(&(op1Node->op1Arg));
+                printf("\", id=n%p];\n",t);
+                dump_dot_Term_set(op1Node->op1Arg.child);
+                printf("\n");
+                dump_dot_CC_edges(&(op1Node->op1Arg));
+                break;}
+            case Op0T: {
+                Op0Type* op0Node = term2Op0(t);
+                printf("n%p [label =\"Op0T | <parents> | <copy> | %p ",t, op0Node->primop);
+                printf("\", id=n%p];\n",t);
+                printf("\n");
+                break;}
+            case PrimT: {
+                PrimType* primNode = term2Prim(t);
+                printf("n%p [label =\"PrimT | <parents> | <primData> %d ",t, primNode->primData);
+                printf("\", id=n%p];\n",t);
+                printf("\n");
+                break;}
+            default: {assert(false);}
+        }
+        // printf("n%p [xlabel = \"%p\"];\n",t,t);
+        if (t->parents != NULL) {  // print parent pointer
+            printf("n%p:parents:c -> n%p:", t, ccParent(t->parents));
+            printCCTag(t->parents->tag);
+            printf("_child [constraint=false, weight=0, color=brown, id=n%p_parents];\n",t);
+        }
     }
-    // printf("n%p [xlabel = \"%p\"];\n",t,t);
-    if (t->parents != NULL) {  // print parent pointer
-        printf("n%p:parents:c -> n%p:", t, ccParent(t->parents));
-        printCCTag(t->parents->tag);
-        printf("_child [constraint=false, weight=0, color=brown];\n");
+}
+
+// Clear the 'visited' flag set by dump_dot_Term_set
+void dump_dot_Term_clear(Term* t){
+    assert(t != NULL);
+    if (!t->visited) {
+        return;
+    } else {
+        t->visited = false;
+        switch (t->tag){
+            case VarT: {break;}
+            case LamT: {
+                LamType* lamNode = term2Lam(t);
+                dump_dot_Term_clear(lamNode->lamBody.child);
+                dump_dot_Term_clear(&(lamNode->lamVar.header));
+                break;}
+            case AppT: {
+                AppType* appNode = term2App(t);
+                dump_dot_Term_clear(appNode->appFun.child);
+                dump_dot_Term_clear(appNode->appArg.child);
+                break;}
+            case Op2T: {
+                Op2Type* op2Node = term2Op2(t);
+                dump_dot_Term_clear(op2Node->op2Arg1.child);
+                dump_dot_Term_clear(op2Node->op2Arg2.child);
+                break;}
+            case Op1T: {
+                Op1Type* op1Node = term2Op1(t);
+                dump_dot_Term_clear(op1Node->op1Arg.child);
+                break;}
+            case Op0T: {break;}
+            case PrimT: {break;}
+            default: {assert(false);}
+        }
     }
 }
 
@@ -652,14 +754,14 @@ void dump_dot(Term* root, Term* focus){
     // The 'strict' keyword tells graphviz to de-duplicates edges
     // (graphviz de-duplicates nodes by default)
     printf("digraph {\n");
-    printf("splines=line;\n");
     printf("rankdir=TB;\n");
     printf("node [shape=record];\n");
     printf("edge [headclip=false,tailclip=false,arrowtail=dot,dir=both];\n");
     printf("\n");
     if(root != NULL) {
         // draw the graph
-        dump_dot_Term(root);
+        dump_dot_Term_set(root);
+        dump_dot_Term_clear(root);
     }
     if (focus != NULL){
         // Make the root red
@@ -690,72 +792,89 @@ void dealloc (Term* t){
 
 // Unlink a term from just one of its parents (using a given uplink).
 // Non-recursive. Does not de-allocate.
-void unlinkChild (ChildCell* cc) {
+void unlinkCC (ChildCell* cc) {
     assert(cc != NULL);
-    assert(cc->child != NULL);
-    cc->child->parents = dl_remove (cc);
+    if(cc->child != NULL){
+        dl_assert_member(cc->child->parents,cc);
+        ChildCell* other = dl_remove(cc);
+        if (cc->child->parents == cc){
+            cc->child->parents = other;
+        }
+    }
+    assert(dl_is_singleton(cc));
 }
 
-// Recursively free a dead node.
-// Precondition: t is dead
-void recFreeDeadNode (Term* t);
+// Replace the term poitned to by a ChildCell.
+// Updates parent-lists, for both the old term and its replacement
+// Precondition: cc is not in new's parent list
+// Precondition: cc is not NULL
+void replaceCC(ChildCell* cc, Term* new){
+    unlinkCC(cc);
+    cc->child = new;
+    addToParents(new,cc);
+}
+
+// Garbage collect a node. 
+void collectNode(Term* t);
 
 // Unlink a term from just one of its parents (using a given uplink),
 //  and if this makes the child dead, then free it recursively
 void recUnlinkChild (ChildCell* cc) {
-    unlinkChild (cc);
-    if (cc->child->parents == NULL) {recFreeDeadNode(cc->child);}
+    unlinkCC (cc);
+    collectNode(cc->child);
 }
 
-void recFreeDeadNode (Term* t) {
-    assert(t->parents == NULL);
-    DEBUG_PRINTF("Recursively freeing dead node at %p.\n", t);
-    switch (t->tag) {
-    case LamT:  {
-        LamType* lamNode = term2Lam(t);
-        recUnlinkChild(&(lamNode->lamBody));
-        break;}
-    case VarT:  {break;}
-    case AppT:  {
-        AppType* appNode = term2App(t);
-        recUnlinkChild(&(appNode->appFun));
-        recUnlinkChild(&(appNode->appArg));
-        break;}
-    case Op2T:  {
-        Op2Type* op2Node = term2Op2(t);
-        recUnlinkChild(&(op2Node->op2Arg1));
-        recUnlinkChild(&(op2Node->op2Arg2));
-        break;}
-    case Op1T:  {
-        Op1Type* op1Node = term2Op1(t);
-        recUnlinkChild(&(op1Node->op1Arg));
-        break;}
-    case Op0T:  {break;}
-    case PrimT: {break;}
-    default: {assert(false);}
+void collectNode (Term* t) {
+    DEBUG_PRINTF("Entering collectNode(%p)\n", t);
+    if (t->parents == NULL) {
+        DEBUG_PRINTF("Node %p is dead, freeing recursively.\n", t);
+        switch (t->tag) {
+        case LamT:  {
+            LamType* lamNode = term2Lam(t);
+            recUnlinkChild(&(lamNode->lamBody));
+            break;}
+        case VarT:  {break;}
+        case AppT:  {
+            AppType* appNode = term2App(t);
+            recUnlinkChild(&(appNode->appFun));
+            recUnlinkChild(&(appNode->appArg));
+            break;}
+        case Op2T:  {
+            Op2Type* op2Node = term2Op2(t);
+            recUnlinkChild(&(op2Node->op2Arg1));
+            recUnlinkChild(&(op2Node->op2Arg2));
+            break;}
+        case Op1T:  {
+            Op1Type* op1Node = term2Op1(t);
+            recUnlinkChild(&(op1Node->op1Arg));
+            break;}
+        case Op0T:  {break;}
+        case PrimT: {break;}
+        default: {assert(false);}
+        }
+        dealloc(t);
+    } else {
+        DEBUG_PRINTF("Node %p is live, leaving it alone.\n", t);
     }
-    dealloc(t);
+    DEBUG_PRINTF("Leaving collectNode(%p)\n", t);
 }
 
 // Replace some dead term 'old' with another term 'new',
-//  then free 'old' recursively (but avoid freeing 'new').
-//  Returns 'new'.
-Term* replaceProtectAndCollect (Term* old , Term* new) {
-    DEBUG_PRINTF("Entering replaceProtectAndCollect(%p,%p)\n",old,new);
-    assert(old != NULL);
+//  then free 'old' recursively.
+Term* replaceAndCollect (Term* old , Term* new) {
+    DEBUG_PRINTF("Entering replaceAndCollect(%p,%p)\n",old,new);
+    assert(old != NULL); assert(old->parents != NULL);
     assert(new != NULL);
 
     replaceTerm(old, new);
 
-    // Create a temporary ChildCell targeting 'new', to protect it from deletion
-    ChildCell cc;
-    dl_init(LamBody, new, &cc);
-    addToParents(new, &cc);
+    assert(new->parents != NULL);
 
-    recFreeDeadNode(old);
+    collectNode(old);
 
-    unlinkChild(&cc);    // Clean up temporary ChildCell
-    DEBUG_PRINTF("Leaving replaceProtectAndCollect(%p,%p)\n",old,new);
+    assert(new->parents != NULL);
+
+    DEBUG_PRINTF("Leaving replaceAndCollect(%p,%p)\n",old,new);
     return new;
 }
 
@@ -778,9 +897,7 @@ void upcopyUplinks (Term* newChild, ChildCell* cc) {
                 DEBUG_PRINTF("Copied up into an already-copied λ-node. "
                 "Mutating the existing copy at %p and quitting\n",
                 &(lamNode->copy->header));
-                lamNode->copy->lamBody.child = newChild;
-                newChild->parents = &(lamNode->copy->lamBody);
-                dl_remove(&(lamNode->copy->lamBody));
+                replaceCC(&(lamNode->copy->lamBody), newChild);
             } else {
                 VarType* new_var = mkVar();
                 LamType* new_lam = mkLam(true, new_var, newChild);
@@ -976,10 +1093,10 @@ Term* reduceRedex(Term* t) {
         cleanUplinks(varterm->parents);
 
         // Remove tmp from result's parent list
-        result->parents = dl_remove(&(tmp.lamBody));
+        unlinkCC(&(tmp.lamBody));
     }
     DEBUG_PRINTF("Leaving reduceRedex(%p), about to replace %p with %p\n",t, t, result);
-    return replaceProtectAndCollect(t, result);
+    return replaceAndCollect(t, result);
 }
 
 // Reduce an op2-headed term
@@ -992,7 +1109,7 @@ Term* reduceOp2 (Term* t){
         &(op2Node->op2Arg1.child),
         &(op2Node->op2Arg2.child));
     DEBUG_PRINTF("Leaving reduceOp2(%p), but first replacing %p with %p\n",t, t, new_term);
-    return replaceProtectAndCollect (t, new_term);
+    return replaceAndCollect (t, new_term);
 }
 
 // Reduce an op1-headed term
@@ -1004,7 +1121,7 @@ Term* reduceOp1 (Term* t){
     Term* new_term = (op1Node->primop)(
         &(op1Node->op1Arg.child));
     DEBUG_PRINTF("Leaving reduceOp1(%p), but first replacing %p with %p\n",t, t, new_term);
-    return replaceProtectAndCollect (t, new_term);
+    return replaceAndCollect (t, new_term);
 }
 
 // Reduce an op0-headed term
@@ -1015,7 +1132,7 @@ Term* reduceOp0 (Term* t){
     // invoke function pointer stored in op1Node
     Term* new_term = (op0Node->primop)();
     DEBUG_PRINTF("Leaving reduceOp0(%p), but first replacing %p with %p\n",t, t, new_term);
-    return replaceProtectAndCollect (t, new_term);
+    return replaceAndCollect (t, new_term);
 }
 
 ///////////////////
@@ -1029,6 +1146,7 @@ unsigned int whnf_count = 0;
 Term* whnf(Term* t) {
     DEBUG_PRINTF("Entering whnf(%p)\n",t);
     assert(t != NULL);
+    assert(t->parents != NULL); // normalising parent-less terms can cause subtle GC bugs
     #ifdef CONFIG_DUMP_DOT_ON_WHNF
         printf("// BEGIN DOT DUMP\n");
         printf("// Call # %d of whnf()\n",++whnf_count);
@@ -1360,9 +1478,13 @@ void test_ex26(void) {pretty(whnf(build_ex26()));}  // expected output: printout
 /////////////////
 
 int main (void) {
-    Term* t = build_ex26();
+    Term* t = app(build_collatz(),prim(43));
     global_print_root = lam(mkVar(), t);    // make t a root to avoid GC bugs
-    whnf(t);
+    printf("Before whnf(%p) call:\n",t);
+    pretty(t);
+    t = whnf (t);
+    printf("After whnf(%p) call:\n",t);
+    pretty(t);
     return 0;
 }
 
