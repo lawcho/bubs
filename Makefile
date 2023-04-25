@@ -8,7 +8,7 @@ clean:
 
 view_trace: src/viewer.html build/trace.data.js
 	python3 -m http.server 8000 &
-	firefox localhost:8000/$<
+	firefox --new-instance localhost:8000/$<
 
 build/trace.data.js: build/bubs.trace.run
 	echo "var frames = [\`digraph {label=\"Data loaded, press buttons to render\"}" > $@
@@ -32,7 +32,7 @@ typecheck_c: src/bubs.c
 
 build/bubs.trace.run: src/bubs.c Makefile
 	mkdir -p build
-	gcc $(CCFLAGS) -DCONFIG_DUMP_DOT_ON_WHNF $< -o $@
+	gcc $(CCFLAGS) -DCONFIG_DUMP_DOT_ON_WHNF -DCONFIG_DUMP_DOT_IN_REDUCTION $< -o $@
 	chmod +x $@
 
 build/bubs.debug.run: src/bubs.c Makefile

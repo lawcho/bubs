@@ -18,7 +18,13 @@
 <!-- HTML+Javascript glue -->
 <button onclick="prevFrame()">Go back a step</button>
 <button onclick="nextFrame()">Go forwards a step</button>
-<div id="graph" style="text-align: center; border: 1px solid lightgray;"></div>
+<div id="graph"></div>
+<style>
+/* Make SVG fill the screen, https://stackoverflow.com/a/5644436 */
+html, body { margin:0; padding:0; overflow:hidden }
+svg { position:fixed; top:0; bottom:0; width: 100%; height:100%; z-index:-1 }
+button {z-index: 100}
+</style>
 <script>
 var graphviz = d3.select("#graph").graphviz()
 .keyMode("id") // Avoid animation glitches from multiple edges. Requires nodes&edges to have 'id' attribute.

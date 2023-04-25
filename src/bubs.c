@@ -12,6 +12,7 @@
 #include<stdbool.h>
 #include<stddef.h>
 #include<stdio.h>
+#include<stdarg.h>
 
 #ifdef CONFIG_ENABLE_DEBUG_PRINTF
 #define DEBUG_PRINTF(...) printf(__VA_ARGS__)
@@ -616,8 +617,10 @@ void dump_dot_CC_edges(ChildCell* cc){
     assert(cc != NULL);
 
     // Print (cc->child)
-    printf("n%p:",ccParent(cc));printCCTag(cc->tag);printf("_child:c ->");
-    printf("n%p:parents [color=black id=cc%p_child];\n", cc->child, cc);
+    if (cc->child != NULL){
+        printf("n%p:",ccParent(cc));printCCTag(cc->tag);printf("_child:c ->");
+        printf("n%p:parents [color=black id=cc%p_child];\n", cc->child, cc);
+    }
 
     // Print (cc->pred)
     ChildCell* ccp = cc->pred;
@@ -635,8 +638,9 @@ void dump_dot_CC_edges(ChildCell* cc){
 // Dump graphviz DOT code to print a term. Recursive.
 // Tests & sets the 'visited' flag
 void dump_dot_Term_set(Term* t){
-    assert(t != NULL);
-    if (t->visited) {
+    if (t == NULL) {
+        return;
+    } else if (t->visited) {
         return;
     } else {
         t->visited = true;
@@ -652,6 +656,11 @@ void dump_dot_Term_set(Term* t){
                 printf("\", id=n%p];\n",t);
                 dump_dot_Term_set(lamNode->lamBody.child);
                 dump_dot_Term_set(&(lamNode->lamVar.header));
+                if (lamNode->copy != NULL) {
+                    Term* copy = &(lamNode->copy->header);
+                    dump_dot_Term_set(copy);
+                    printf("n%p:copy:c -> n%p [id = n%p_copy, color=darkgreen, headclip=true, constraint=false];\n", t, copy, t);
+                }
                 printf("\n");
                 dump_dot_CC_edges(&(lamNode->lamBody));
                 printf("n%p:lamVar -> n%p [headclip=true, color=darkgoldenrod, dir=none, id=n%p_lamvar];\n",
@@ -665,6 +674,11 @@ void dump_dot_Term_set(Term* t){
                 printf("\", id=n%p];\n",t);
                 dump_dot_Term_set(appNode->appFun.child);
                 dump_dot_Term_set(appNode->appArg.child);
+                if (appNode->copy != NULL) {
+                    Term* copy = &(appNode->copy->header);
+                    dump_dot_Term_set(copy);
+                    printf("n%p:copy:c -> n%p [id = n%p_copy, color=darkgreen, headclip=true, constraint=false];\n", t, copy, t);
+                }
                 printf("\n");
                 dump_dot_CC_edges(&(appNode->appFun));
                 dump_dot_CC_edges(&(appNode->appArg));
@@ -677,6 +691,11 @@ void dump_dot_Term_set(Term* t){
                 printf("\", id=n%p];\n",t);
                 dump_dot_Term_set(op2Node->op2Arg1.child);
                 dump_dot_Term_set(op2Node->op2Arg2.child);
+                if (op2Node->copy != NULL) {
+                    Term* copy = &(op2Node->copy->header);
+                    dump_dot_Term_set(copy);
+                    printf("n%p:copy:c -> n%p [id = n%p_copy, color=darkgreen, headclip=true, constraint=false];\n", t, copy, t);
+                }
                 printf("\n");
                 dump_dot_CC_edges(&(op2Node->op2Arg1));
                 dump_dot_CC_edges(&(op2Node->op2Arg2));
@@ -708,15 +727,16 @@ void dump_dot_Term_set(Term* t){
         if (t->parents != NULL) {  // print parent pointer
             printf("n%p:parents:c -> n%p:", t, ccParent(t->parents));
             printCCTag(t->parents->tag);
-            printf("_child [constraint=false, weight=0, color=brown, id=n%p_parents];\n",t);
+            printf("_child [constraint=false, headclip=true, weight=0, color=brown, id=n%p_parents];\n",t);
         }
     }
 }
 
 // Clear the 'visited' flag set by dump_dot_Term_set
 void dump_dot_Term_clear(Term* t){
-    assert(t != NULL);
-    if (!t->visited) {
+    if (t == NULL) {
+        return;
+    } else if (!t->visited) {
         return;
     } else {
         t->visited = false;
@@ -726,16 +746,19 @@ void dump_dot_Term_clear(Term* t){
                 LamType* lamNode = term2Lam(t);
                 dump_dot_Term_clear(lamNode->lamBody.child);
                 dump_dot_Term_clear(&(lamNode->lamVar.header));
+                if (lamNode->copy != NULL) {dump_dot_Term_clear(&(lamNode->copy->header));}
                 break;}
             case AppT: {
                 AppType* appNode = term2App(t);
                 dump_dot_Term_clear(appNode->appFun.child);
                 dump_dot_Term_clear(appNode->appArg.child);
+                if (appNode->copy != NULL) {dump_dot_Term_clear(&(appNode->copy->header));}
                 break;}
             case Op2T: {
                 Op2Type* op2Node = term2Op2(t);
                 dump_dot_Term_clear(op2Node->op2Arg1.child);
                 dump_dot_Term_clear(op2Node->op2Arg2.child);
+                if (op2Node->copy != NULL) {dump_dot_Term_clear(&(op2Node->copy->header));}
                 break;}
             case Op1T: {
                 Op1Type* op1Node = term2Op1(t);
@@ -748,26 +771,59 @@ void dump_dot_Term_clear(Term* t){
     }
 }
 
+Term* global_print_root = NULL;
+
 // Dump the whole BUBS heap on stdout, formatted into graphviz DOT code that draws it.
-// The 1st arg tells where to print from, the 2nd arg tells what to highlight
-void dump_dot(Term* root, Term* focus){
-    // The 'strict' keyword tells graphviz to de-duplicates edges
-    // (graphviz de-duplicates nodes by default)
+// Additionally, give the graph a label and highlight n nodes in n different colours.
+// The graph is printed top-down from the following roots:
+//  * The file-scope variable global_print_root.
+//  * The passed nodes to highlight.
+void dump_dot(char* label, unsigned int n,...){
+    printf("// BEGIN DOT DUMP\n");
     printf("digraph {\n");
+    if (label != NULL){
+        printf("label = \"%s\"\n",label);
+    }
     printf("rankdir=TB;\n");
+    printf("splines=false;\n");
     printf("node [shape=record];\n");
     printf("edge [headclip=false,tailclip=false,arrowtail=dot,dir=both];\n");
     printf("\n");
-    if(root != NULL) {
-        // draw the graph
-        dump_dot_Term_set(root);
-        dump_dot_Term_clear(root);
+
+    // Extract var args. Based on https://jameshfisher.com/2016/11/23/c-varargs/
+    va_list argp;
+    va_start (argp, n);
+    Term* nodes [n];
+    char* colors [n];   
+    for (unsigned int i = 0; i < n; i++){
+        nodes[i] = va_arg(argp, Term*);
+        colors[i] = va_arg(argp, char*);
+        assert(nodes[i] != NULL);
+        assert(colors[i] != NULL);
     }
-    if (focus != NULL){
-        // Make the root red
-        printf("n%p [style=filled,fillcolor = yellow];\n",focus);
+    va_end(argp);
+
+    // Draw the graph
+    if(global_print_root != NULL)
+        {dump_dot_Term_set(global_print_root);}
+    for (unsigned int i = 0; i < n; i++){
+        dump_dot_Term_set(nodes[i]);
+    }
+
+    // Clear 'visited' flags set by drawing the graph
+    if(global_print_root != NULL)
+        {dump_dot_Term_clear(global_print_root);}
+    for (unsigned int i = 0; i < n; i++){
+        dump_dot_Term_clear(nodes[i]);
+    }
+
+    // Highlight the selected nodes
+    for (unsigned int i = 0; i < n; i++){
+        printf("n%p [style=filled,fillcolor = %s];\n",
+        nodes[i],colors[i]);
     }
     printf("}\n");
+    printf("// END DOT DUMP\n");
 }
 
 
@@ -889,6 +945,9 @@ void upcopyUplinks (Term* newChild, ChildCell* cc) {
     ChildCell* i = cc;
     do {Term* t = ccParent(i);
         DEBUG_PRINTF("Upcopying into term at %p.\n", t);
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("Upcopying",3, newChild,"lightblue", cc->child, "darkgreen", ccParent(cc), "lightgreen");
+        #endif
         switch (i->tag){    
         case LamBody:{
             LamType* lamNode = term2Lam(t);
@@ -1051,20 +1110,37 @@ Term* reduceRedex(Term* t) {
     assert(t->tag == AppT);
     AppType* a = term2App(t);
     assert(a->appFun.child->tag == LamT);
-    LamType* l = term2Lam(a->appFun.child);
+    Term* lamterm = a->appFun.child;
+    LamType* l = term2Lam(lamterm);
     Term* argterm = a->appArg.child;
     Term* varterm = &(l->lamVar.header);
     ChildCell* lampars = l->header.parents;
 
+    #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+        dump_dot("About to reduce β-redex",2,
+        t,"orange",lamterm,"orange");
+    #endif
     Term* result;
 
     if (dl_is_singleton(lampars)) {
         DEBUG_PRINTF("Single-parent fast path.\n");
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("About to substitute λ-body in place.\n",4,
+            t,"orange",lamterm,"orange",varterm,"darkgreen",argterm,"lightblue");
+        #endif
         replaceTerm(varterm, argterm);
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("Replaced variable of single-parent λ-node",3,
+            t,"orange",lamterm,"orange",argterm,"lightblue");
+        #endif
         result = l->lamBody.child;
     }
     else if (varterm->parents == NULL) {
         DEBUG_PRINTF("Unused-variable fast path.\n");
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("Variable λ-node unused, no work to do",3,
+            t,"orange",lamterm,"orange",varterm,"green");
+        #endif
         result = l->lamBody.child;
     }
     else {
@@ -1072,8 +1148,8 @@ Term* reduceRedex(Term* t) {
 
         // Stack-allocate a λ-node to collect the result of upcopy
         LamType tmp;
-        tmp.header.parents = NULL;
-        tmp.lamVar.header.parents = NULL;
+        init_Term(LamT,&(tmp.header));
+        init_Term(VarT,&(tmp.lamVar.header));
         dl_init(LamBody, NULL, &(tmp.lamBody));
         DEBUG_PRINTF("&tmp == %p\n",&tmp);
         DEBUG_PRINTF("&(tmp.lamBody) == %p\n",&(tmp.lamBody));
@@ -1082,12 +1158,20 @@ Term* reduceRedex(Term* t) {
         // Upcopy, starting at [var ↦ argterm], stopping at l
         tmp.copy = &tmp;
         l->copy = &tmp;
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("General case of β-reduction, about to upcopy",4,
+            t,"orange",lamterm,"orange",varterm,"darkgreen",argterm,"lightblue");
+        #endif
         upcopyUplinks(argterm, varterm->parents);
 
         // Extract the output of the upcopy
         assert(tmp.lamBody.child != NULL);
         result = tmp.lamBody.child;
 
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("Done constructing the β-contractum, about to clean up",3,
+            t,"orange",lamterm,"orange",result,"olive");
+        #endif
         // Upclean, starting at var, stopping at l
         l->copy = NULL;
         cleanUplinks(varterm->parents);
@@ -1096,6 +1180,10 @@ Term* reduceRedex(Term* t) {
         unlinkCC(&(tmp.lamBody));
     }
     DEBUG_PRINTF("Leaving reduceRedex(%p), about to replace %p with %p\n",t, t, result);
+    #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+        dump_dot("Constructed the β-contractum",3,
+        t,"orange",lamterm,"orange",result,"olive");
+    #endif
     return replaceAndCollect(t, result);
 }
 
@@ -1104,7 +1192,9 @@ Term* reduceOp2 (Term* t){
     DEBUG_PRINTF("Entering reduceOp2(%p)\n",t);
     assert(t->tag == Op2T);
     Op2Type* op2Node = term2Op2(t);
-    // invoke function pointer stored in op2Node
+    #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+        dump_dot("About to call function pointer in Op2 node",1,t,"orange");
+    #endif
     Term* new_term = (op2Node->primop)(
         &(op2Node->op2Arg1.child),
         &(op2Node->op2Arg2.child));
@@ -1117,7 +1207,9 @@ Term* reduceOp1 (Term* t){
     DEBUG_PRINTF("Entering reduceOp1(%p)\n",t);
     assert(t->tag == Op1T);
     Op1Type* op1Node = term2Op1(t);
-    // invoke function pointer stored in op1Node
+    #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+        dump_dot("About to call function pointer in Op1 node",1,t,"orange");
+    #endif
     Term* new_term = (op1Node->primop)(
         &(op1Node->op1Arg.child));
     DEBUG_PRINTF("Leaving reduceOp1(%p), but first replacing %p with %p\n",t, t, new_term);
@@ -1129,7 +1221,9 @@ Term* reduceOp0 (Term* t){
     DEBUG_PRINTF("Entering reduceOp0(%p)\n",t);
     assert(t->tag == Op0T);
     Op0Type* op0Node = term2Op0(t);
-    // invoke function pointer stored in op1Node
+    #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+        dump_dot("About to call function pointer in Op0 node",1,t,"orange");
+    #endif
     Term* new_term = (op0Node->primop)();
     DEBUG_PRINTF("Leaving reduceOp0(%p), but first replacing %p with %p\n",t, t, new_term);
     return replaceAndCollect (t, new_term);
@@ -1139,8 +1233,6 @@ Term* reduceOp0 (Term* t){
 // Normalisation //
 ///////////////////
 
-Term* global_print_root = NULL;
-unsigned int whnf_count = 0;
 
 // Reduce a term to weak-head normal form
 Term* whnf(Term* t) {
@@ -1148,10 +1240,7 @@ Term* whnf(Term* t) {
     assert(t != NULL);
     assert(t->parents != NULL); // normalising parent-less terms can cause subtle GC bugs
     #ifdef CONFIG_DUMP_DOT_ON_WHNF
-        printf("// BEGIN DOT DUMP\n");
-        printf("// Call # %d of whnf()\n",++whnf_count);
-        dump_dot(global_print_root,t);
-        printf("// END DOT DUMP\n");
+        dump_dot("In whnf(), searching for terms to reduce",1,t,"yellow");
     #endif
     switch (t->tag) {
     case AppT:  {
@@ -1478,13 +1567,9 @@ void test_ex26(void) {pretty(whnf(build_ex26()));}  // expected output: printout
 /////////////////
 
 int main (void) {
-    Term* t = app(build_collatz(),prim(43));
+    Term* t = app(build_collatz(),prim(3));
     global_print_root = lam(mkVar(), t);    // make t a root to avoid GC bugs
-    printf("Before whnf(%p) call:\n",t);
-    pretty(t);
     t = whnf (t);
-    printf("After whnf(%p) call:\n",t);
-    pretty(t);
     return 0;
 }
 
