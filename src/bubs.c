@@ -7,6 +7,7 @@
 // Dependencies //
 //////////////////
 
+#include"bubs.h"
 #include<stdlib.h>
 #include<assert.h>
 #include<stdbool.h>
@@ -122,7 +123,7 @@ struct PrimType_s {
 // These are prefixed with dl_ to avoid name clashes
 
 // Check that a single cell in a DLL is well formed. O(1).
-void dl_assert_wf_cc(ChildCell* cc){
+static void dl_assert_wf_cc(ChildCell* cc){
     assert(cc != NULL);
     // Check that cc has pred and succ nodes
     assert (cc->pred != NULL);
@@ -134,7 +135,7 @@ void dl_assert_wf_cc(ChildCell* cc){
 
 // Check that a DLL is well formed. O(length of DLL).
 // May loop on malformed DLLs.
-void dl_assert_wf(ChildCell* cc) {
+static void dl_assert_wf(ChildCell* cc) {
     if (cc == NULL) {return;}
     ChildCell* i = cc;
     // Scan forwards through the list, checking the invariant
@@ -151,7 +152,7 @@ void dl_assert_wf(ChildCell* cc) {
 
 // Set a bi-directional link between cells.
 // Only for use in other dl_ functions.
-void dl_set_link (ChildCell* cc1, ChildCell* cc2) {
+static void dl_set_link (ChildCell* cc1, ChildCell* cc2) {
     // No WF assertions here since this function is used internally,
     // when the invariant is temporarily broken
     assert(cc1 != NULL);
@@ -165,7 +166,7 @@ void dl_set_link (ChildCell* cc1, ChildCell* cc2) {
 // alias() replaced by C pointer equality _==_
 
 // Does the (NULLable) pointer point to a singleton list?
-bool dl_is_singleton (ChildCell* cc) {
+static bool dl_is_singleton (ChildCell* cc) {
     dl_assert_wf(cc);
 
     if (cc == NULL) {return false;}
@@ -178,7 +179,7 @@ bool dl_is_singleton (ChildCell* cc) {
 
 // Initialize a ChildCell as a singleton with an initial value
 //  Repaces new(), since this function does not do allocation.
-void dl_init (ChildCellTag tag, Term* child, ChildCell* cc) {
+static void dl_init (ChildCellTag tag, Term* child, ChildCell* cc) {
     assert (cc != NULL);
 
     cc->tag = tag;
@@ -191,7 +192,7 @@ void dl_init (ChildCellTag tag, Term* child, ChildCell* cc) {
 
 // Unlink a ChildCell from its surrounding list,
 // and return another element from that list (NULL if there are no others)
-ChildCell* dl_remove (ChildCell* cc) {
+static ChildCell* dl_remove (ChildCell* cc) {
     dl_assert_wf(cc); assert (cc != NULL);
 
     if (dl_is_singleton (cc)) {
@@ -212,7 +213,7 @@ ChildCell* dl_remove (ChildCell* cc) {
 // Concatenate two lists in-place
 //  Precondition: lists must be distinct
 //  See the SML code for details of correctness & the precondition.
-void dl_union (ChildCell* a, ChildCell* c) {
+static void dl_union (ChildCell* a, ChildCell* c) {
     dl_assert_wf(a); assert (a != NULL);
     dl_assert_wf(c); assert (c != NULL);
 
@@ -228,7 +229,7 @@ void dl_union (ChildCell* a, ChildCell* c) {
 }
 
 // Assert that two ChildCell s are on the same DLL
-void dl_assert_member(ChildCell* a, ChildCell* b) {
+static void dl_assert_member(ChildCell* a, ChildCell* b) {
     dl_assert_wf(a); assert(a != NULL);
     dl_assert_wf(b); assert(b != NULL);
     bool found = false;
@@ -248,31 +249,31 @@ void dl_assert_member(ChildCell* a, ChildCell* b) {
 ///////////////////////////////////////////////
 
 // Property under test: init() creates a singleton
-void dl_test_singleton_init (void) {
-    Term t; // no need to init this to test the DLL lib
-    ChildCell cc;
-    dl_init(LamBody, &t, &cc);
-    assert(dl_is_singleton(&cc));
-}
+// static void dl_test_singleton_init (void) {
+//     Term t; // no need to init this to test the DLL lib
+//     ChildCell cc;
+//     dl_init(LamBody, &t, &cc);
+//     assert(dl_is_singleton(&cc));
+// }
 
-// Property under test: union() works as expected
-void dl_test_singleton_remove (void) {
-    Term t1; ChildCell cc1; dl_init(LamBody, &t1, &cc1);
-    Term t2; ChildCell cc2; dl_init(LamBody, &t2, &cc2);
-    Term t3; ChildCell cc3; dl_init(LamBody, &t3, &cc3);
-    Term t4; ChildCell cc4; dl_init(LamBody, &t4, &cc4);
-    dl_union(&cc1,&cc2);
-    dl_union(&cc3,&cc4);
-    dl_union(&cc4,&cc1);
-    assert ((&cc1)->succ->succ->succ->succ == &cc1);
-    assert ((&cc2)->succ->succ->succ->succ == &cc2);
-    assert ((&cc3)->succ->succ->succ->succ == &cc3);
-    assert ((&cc4)->succ->succ->succ->succ == &cc4);
-    assert ((&cc1)->pred->pred->pred->pred == &cc1);
-    assert ((&cc2)->pred->pred->pred->pred == &cc2);
-    assert ((&cc3)->pred->pred->pred->pred == &cc3);
-    assert ((&cc4)->pred->pred->pred->pred == &cc4);
-}
+// // Property under test: union() works as expected
+// static void dl_test_singleton_remove (void) {
+//     Term t1; ChildCell cc1; dl_init(LamBody, &t1, &cc1);
+//     Term t2; ChildCell cc2; dl_init(LamBody, &t2, &cc2);
+//     Term t3; ChildCell cc3; dl_init(LamBody, &t3, &cc3);
+//     Term t4; ChildCell cc4; dl_init(LamBody, &t4, &cc4);
+//     dl_union(&cc1,&cc2);
+//     dl_union(&cc3,&cc4);
+//     dl_union(&cc4,&cc1);
+//     assert ((&cc1)->succ->succ->succ->succ == &cc1);
+//     assert ((&cc2)->succ->succ->succ->succ == &cc2);
+//     assert ((&cc3)->succ->succ->succ->succ == &cc3);
+//     assert ((&cc4)->succ->succ->succ->succ == &cc4);
+//     assert ((&cc1)->pred->pred->pred->pred == &cc1);
+//     assert ((&cc2)->pred->pred->pred->pred == &cc2);
+//     assert ((&cc3)->pred->pred->pred->pred == &cc3);
+//     assert ((&cc4)->pred->pred->pred->pred == &cc4);
+// }
 
 ////////////////////////////////////
 // Coercion & Traversal functions //
@@ -284,7 +285,7 @@ void dl_test_singleton_remove (void) {
 #define container_of(ptr, type, member) ((type *)((char *)(1 ? (ptr) : &((type *)0)->member) - offsetof(type, member)))
 
 // Get the node containing a ChildCell
-Term* ccParent(ChildCell* cc){
+static Term* ccParent(ChildCell* cc){
     switch (cc->tag){
     case AppFun: {return &(container_of(cc, AppType, appFun )->header);}
     case AppArg: {return &(container_of(cc, AppType, appArg )->header);}
@@ -297,18 +298,23 @@ Term* ccParent(ChildCell* cc){
 }
 
 // Downcasts (check tag before use!)
-LamType* term2Lam(Term* t)
+static LamType* term2Lam(Term* t)
     {assert(t->tag == LamT); return container_of(t, LamType, header);}
-AppType* term2App(Term* t) 
+static AppType* term2App(Term* t) 
     {assert(t->tag == AppT); return container_of(t, AppType, header);}
-Op2Type* term2Op2(Term* t)
+static Op2Type* term2Op2(Term* t)
     {assert(t->tag == Op2T); return container_of(t, Op2Type, header);}
-Op1Type* term2Op1(Term* t)
+static Op1Type* term2Op1(Term* t)
     {assert(t->tag == Op1T); return container_of(t, Op1Type, header);}
-Op0Type* term2Op0(Term* t)
+static Op0Type* term2Op0(Term* t)
     {assert(t->tag == Op0T); return container_of(t, Op0Type, header);}
-PrimType* term2Prim(Term* t)
+static PrimType* term2Prim(Term* t)
     {assert(t->tag == PrimT); return container_of(t, PrimType, header);}
+
+// API function
+unsigned int from_prim(Term* t){
+    return term2Prim(t)->primData;
+} 
 
 ////////////////////////////
 // Misc. setter functions //
@@ -316,7 +322,7 @@ PrimType* term2Prim(Term* t)
 
 // Add uplink(s) to a node's parent-list.
 // Precondition: the two lists must be different.
-void addToParents(Term* node, ChildCell* cc) {
+static void addToParents(Term* node, ChildCell* cc) {
     assert(node != NULL);
     assert(cc != NULL);
     if (node->parents == NULL) {
@@ -329,7 +335,7 @@ void addToParents(Term* node, ChildCell* cc) {
 // Replace one term w/another in the DAG.
 // Leaves the old term dead.
 // Precondition: the terms are distinct
-void replaceTerm(Term* old, Term* new) {
+static void replaceTerm(Term* old, Term* new) {
     assert(old != NULL);
     assert(new != NULL);
     assert(old != new);
@@ -348,7 +354,7 @@ void replaceTerm(Term* old, Term* new) {
 ///////////////////////
 
 // Initialise the fields of a Term header
-void init_Term(TermTag tag, Term* n){
+static void init_Term(TermTag tag, Term* n){
     n->tag = tag;
     n->visited = false;
     n->parents = NULL;
@@ -356,6 +362,7 @@ void init_Term(TermTag tag, Term* n){
 
 // Construct a var-node on the heap
 // Under the hood, this allocates a surrounding λ-node too.
+// This function is not marked 'static' because it is in the API
 VarType* mkVar (void) {
     LamType* lamNode = malloc(sizeof(LamType));
 
@@ -364,7 +371,7 @@ VarType* mkVar (void) {
 }
 
 // Initialize a λ-node on the heap
-LamType* mkLam (bool selfRef, VarType* var, Term* body) {
+static LamType* mkLam (bool selfRef, VarType* var, Term* body) {
     LamType* lamNode = container_of(var, LamType, lamVar);
 
     init_Term(LamT, &(lamNode->header));
@@ -377,7 +384,7 @@ LamType* mkLam (bool selfRef, VarType* var, Term* body) {
 }
 
 // Construct an @-node on the heap
-AppType* mkApp (bool selfRef, Term* fun, Term* arg) {
+static AppType* mkApp (bool selfRef, Term* fun, Term* arg) {
     AppType* appNode = malloc(sizeof(AppType));
 
     init_Term(AppT, &(appNode->header));
@@ -389,7 +396,7 @@ AppType* mkApp (bool selfRef, Term* fun, Term* arg) {
     return appNode;
 }
 
-Op2Type* mkOp2 (bool selfRef, Term* (*primop)(Term** , Term**), Term* arg1, Term* arg2) {
+static Op2Type* mkOp2 (bool selfRef, Term* (*primop)(Term** , Term**), Term* arg1, Term* arg2) {
     Op2Type* op2Node = malloc(sizeof(Op2Type));
 
     init_Term(Op2T, &(op2Node->header));
@@ -402,7 +409,7 @@ Op2Type* mkOp2 (bool selfRef, Term* (*primop)(Term** , Term**), Term* arg1, Term
     return op2Node;
 }
 
-Op1Type* mkOp1 (Term* (*primop)(Term**), Term* arg) {
+static Op1Type* mkOp1 (Term* (*primop)(Term**), Term* arg) {
     Op1Type* op1Node = malloc(sizeof(Op1Type));
 
     init_Term(Op1T, &(op1Node->header));
@@ -412,7 +419,7 @@ Op1Type* mkOp1 (Term* (*primop)(Term**), Term* arg) {
     return op1Node;
 }
 
-Op0Type* mkOp0 (Term* (*primop)(void)) {
+static Op0Type* mkOp0 (Term* (*primop)(void)) {
     Op0Type* op0Node = malloc(sizeof(Op0Type));
 
     init_Term(Op0T, &(op0Node->header));
@@ -420,7 +427,7 @@ Op0Type* mkOp0 (Term* (*primop)(void)) {
     return op0Node;
 }
 
-PrimType* mkPrim (unsigned int primData) {
+static PrimType* mkPrim (unsigned int primData) {
     PrimType* primNode = malloc(sizeof(PrimType));
 
     init_Term(PrimT, &(primNode->header));
@@ -450,7 +457,7 @@ Term* prim (unsigned int data)
 ///////////////////////////////
 
 // Print a ChildCell tag to stdout.
-void printCCTag (ChildCellTag t) {
+static void printCCTag (ChildCellTag t) {
     switch (t){
         case AppFun:    {printf("AppFun");  break;}
         case AppArg:    {printf("AppArg" ); break;}
@@ -463,14 +470,14 @@ void printCCTag (ChildCellTag t) {
 }
 
 // Print a ChildCell to stdout
-void printCC (ChildCell* cc) {
+static void printCC (ChildCell* cc) {
     assert(cc != NULL);
     printCCTag(cc->tag);
     printf(" %12p", ccParent(cc));
 }
 
 // Print the parents of a term to stdout, followed by newline
-void printParents (Term* t) {
+static void printParents (Term* t) {
     printf ("(parents = [");
     if (t->parents != NULL){
         ChildCell* i = t->parents;
@@ -485,7 +492,7 @@ void printParents (Term* t) {
 
 // Print a term to stdout (pre-order depth-first traversal w/ cut-off).
 // Tests & sets the 'visited' flag
-void pretty_set (Term* t) {
+static void pretty_set (Term* t) {
     if (t->visited) {
         return;
     } else {
@@ -556,7 +563,7 @@ void pretty_set (Term* t) {
     }
 }
 // Reset the 'visited' flag set by pretty_set.
-void pretty_clear (Term* t) {
+static void pretty_clear (Term* t) {
     if (!t->visited) {
         return;
     } else {
@@ -589,6 +596,7 @@ void pretty_clear (Term* t) {
 }
 
 // Pretty-print a term
+// This function is not marked 'static' because it is in the API
 void pretty(Term* t){
     assert(t != NULL);
     assert(!t->visited);// should hold for sub-terms too, but this is hard to test
@@ -599,7 +607,7 @@ void pretty(Term* t){
 
 
 // Print a ChildCell as a DOT sub-node
-void dump_dot_CC_node(ChildCell* cc){
+static void dump_dot_CC_node(ChildCell* cc){
     assert(cc != NULL);
     printf("| {");
     printCCTag(cc->tag);
@@ -613,7 +621,7 @@ void dump_dot_CC_node(ChildCell* cc){
 }
 
 // Print the pointers out of a ChildCell as DOT edges.
-void dump_dot_CC_edges(ChildCell* cc){
+static void dump_dot_CC_edges(ChildCell* cc){
     assert(cc != NULL);
 
     // Print (cc->child)
@@ -637,7 +645,7 @@ void dump_dot_CC_edges(ChildCell* cc){
 
 // Dump graphviz DOT code to print a term. Recursive.
 // Tests & sets the 'visited' flag
-void dump_dot_Term_set(Term* t){
+static void dump_dot_Term_set(Term* t){
     if (t == NULL) {
         return;
     } else if (t->visited) {
@@ -733,7 +741,7 @@ void dump_dot_Term_set(Term* t){
 }
 
 // Clear the 'visited' flag set by dump_dot_Term_set
-void dump_dot_Term_clear(Term* t){
+static void dump_dot_Term_clear(Term* t){
     if (t == NULL) {
         return;
     } else if (!t->visited) {
@@ -773,11 +781,8 @@ void dump_dot_Term_clear(Term* t){
 
 Term* global_print_root = NULL;
 
-// Dump the whole BUBS heap on stdout, formatted into graphviz DOT code that draws it.
-// Additionally, give the graph a label and highlight n nodes in n different colours.
-// The graph is printed top-down from the following roots:
-//  * The file-scope variable global_print_root.
-//  * The passed nodes to highlight.
+// Dump the whole BUBS heap to stdout.
+// See the header file for usage more documentation.
 void dump_dot(char* label, unsigned int n,...){
     printf("// BEGIN DOT DUMP\n");
     printf("digraph {\n");
@@ -833,7 +838,7 @@ void dump_dot(char* label, unsigned int n,...){
 
 // Free a node (unless embedded in another node).
 // Non-recursive.
-void dealloc (Term* t){
+static void dealloc (Term* t){
     switch (t->tag) {
     case LamT:  {free(t); return;}
     case VarT:  {return;}   // don't free variables, they are stored inside λ-nodes
@@ -848,7 +853,7 @@ void dealloc (Term* t){
 
 // Unlink a term from just one of its parents (using a given uplink).
 // Non-recursive. Does not de-allocate.
-void unlinkCC (ChildCell* cc) {
+static void unlinkCC (ChildCell* cc) {
     assert(cc != NULL);
     if(cc->child != NULL){
         dl_assert_member(cc->child->parents,cc);
@@ -864,23 +869,23 @@ void unlinkCC (ChildCell* cc) {
 // Updates parent-lists, for both the old term and its replacement
 // Precondition: cc is not in new's parent list
 // Precondition: cc is not NULL
-void replaceCC(ChildCell* cc, Term* new){
+static void replaceCC(ChildCell* cc, Term* new){
     unlinkCC(cc);
     cc->child = new;
     addToParents(new,cc);
 }
 
 // Garbage collect a node. 
-void collectNode(Term* t);
+static void collectNode(Term* t);
 
 // Unlink a term from just one of its parents (using a given uplink),
 //  and if this makes the child dead, then free it recursively
-void recUnlinkChild (ChildCell* cc) {
+static void recUnlinkChild (ChildCell* cc) {
     unlinkCC (cc);
     collectNode(cc->child);
 }
 
-void collectNode (Term* t) {
+static void collectNode (Term* t) {
     DEBUG_PRINTF("Entering collectNode(%p)\n", t);
     if (t->parents == NULL) {
         DEBUG_PRINTF("Node %p is dead, freeing recursively.\n", t);
@@ -917,7 +922,7 @@ void collectNode (Term* t) {
 
 // Replace some dead term 'old' with another term 'new',
 //  then free 'old' recursively.
-Term* replaceAndCollect (Term* old , Term* new) {
+static Term* replaceAndCollect (Term* old , Term* new) {
     DEBUG_PRINTF("Entering replaceAndCollect(%p,%p)\n",old,new);
     assert(old != NULL); assert(old->parents != NULL);
     assert(new != NULL);
@@ -934,12 +939,17 @@ Term* replaceAndCollect (Term* old , Term* new) {
     return new;
 }
 
+// 'collectNode' is renamed to 'collect' in the API
+void collect(Term* t) {
+    collectNode(t);
+}
+
 /////////////////////////////////
 // Upcopying and copy-clearing //
 /////////////////////////////////
 
 // See SML code for explanation of the algorithm
-void upcopyUplinks (Term* newChild, ChildCell* cc) {
+static void upcopyUplinks (Term* newChild, ChildCell* cc) {
     if (cc == NULL) {return;}   // No uplinks in list => stop recursion
     // Have uplinks => loop over them, spawning upcopies at each
     ChildCell* i = cc;
@@ -1053,7 +1063,7 @@ void upcopyUplinks (Term* newChild, ChildCell* cc) {
 
 // cleanUplinks follow the recursion path of upcopyUplinks,
 // but clearing the copy slots instead of setting them
-void cleanUplinks(ChildCell* cc) {
+static void cleanUplinks(ChildCell* cc) {
     if (cc == NULL) {return;}   // No uplinks in list => stop recursion
     // Have uplinks => loop over them, spawning upcleans at each
     ChildCell* i = cc;
@@ -1103,7 +1113,7 @@ void cleanUplinks(ChildCell* cc) {
 ///////////////////////////////////
 
 // Contract a β-redex in-place (and return a pointer for convenience)
-Term* reduceRedex(Term* t) {
+static Term* reduceRedex(Term* t) {
     DEBUG_PRINTF("Entering reduceRedex(%p)\n",t);
 
     // Get pointers to relevant sub-terms
@@ -1188,7 +1198,7 @@ Term* reduceRedex(Term* t) {
 }
 
 // Reduce an op2-headed term
-Term* reduceOp2 (Term* t){
+static Term* reduceOp2 (Term* t){
     DEBUG_PRINTF("Entering reduceOp2(%p)\n",t);
     assert(t->tag == Op2T);
     Op2Type* op2Node = term2Op2(t);
@@ -1203,7 +1213,7 @@ Term* reduceOp2 (Term* t){
 }
 
 // Reduce an op1-headed term
-Term* reduceOp1 (Term* t){
+static Term* reduceOp1 (Term* t){
     DEBUG_PRINTF("Entering reduceOp1(%p)\n",t);
     assert(t->tag == Op1T);
     Op1Type* op1Node = term2Op1(t);
@@ -1217,7 +1227,7 @@ Term* reduceOp1 (Term* t){
 }
 
 // Reduce an op0-headed term
-Term* reduceOp0 (Term* t){
+static Term* reduceOp0 (Term* t){
     DEBUG_PRINTF("Entering reduceOp0(%p)\n",t);
     assert(t->tag == Op0T);
     Op0Type* op0Node = term2Op0(t);
@@ -1232,7 +1242,6 @@ Term* reduceOp0 (Term* t){
 ///////////////////
 // Normalisation //
 ///////////////////
-
 
 // Reduce a term to weak-head normal form
 Term* whnf(Term* t) {
@@ -1262,314 +1271,3 @@ Term* whnf(Term* t) {
         }
     }
 }
-
-///////////////
-// Test data //
-///////////////
-
-// The term (λ x . x)
-Term* build_id (void) {
-    VarType* x = mkVar();
-    return lam(x, var(x));
-}
-
-// The term (λ x . x)(λ y . y)
-Term* build_ex2 (void) {
-    return app (build_id(), build_id());
-}
-
-// The term (E E) where shared E = (λ x . x)
-Term* build_ex3 (void) {
-    Term* id = build_id();
-    return app (id, id);
-}
-
-// 'chain of perals' examples from the BUBS 2010 paper
-// i.e. stack of shared @-nodes, n deep, with id at the bottom
-Term* build_pearls (unsigned int n) {
-    Term* t = build_id();
-    for (; n > 0; n--) {
-        t = app(t,t);
-    }
-    return t;
-}
-
-// The term ((λ x . 4) 5)
-Term* build_ex5 (void) {
-    VarType* x = mkVar ();
-    return app(lam(x, prim(4)), prim(5));
-}
-
-// A prim-op for addition
-Term* op_add(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    return prim(term2Prim(t1n)->primData + term2Prim(t2n)->primData);
-}
-
-// The term (11 + 25)
-Term* build_ex6 (void) {
-    return op2(op_add, prim (11), prim (25));
-}
-
-// The term (λ x . λ y . x + y)
-Term* build_add (void) {
-    VarType* x = mkVar();
-    VarType* y = mkVar();
-    return lam(x, lam(y, op2(op_add, var(x), var(y))));
-}
-
-// The term (λ f . f 11 25) (λ x . λ y . x + y)
-Term* build_ex8 (void) {
-    VarType* f = mkVar();
-    Term* t1 = lam(f, app(app(var(f), prim(11)), prim(25)));
-    return app(t1, build_add());
-}
-
-// The term ((1 + 2) + 3)
-Term* build_ex9 (void) {
-    return op2(op_add, op2(op_add, prim(1), prim(2)), prim(3));
-}
-
-// The term (A (A 1 2) 3) where A = (λ x . λ y . x + y)
-Term* build_ex10 (void) {
-    Term* a = build_add();
-    Term* a12 = app(app(a, prim(1)),prim(2));
-    Term* a123 = app(app(a, a12), prim(3));
-    return a123;
-}
-
-// The term (λ f . f (f 1 2) 3) (λ x . λ y . x + y)
-Term* build_ex11 (void) {
-    VarType* f = mkVar ();
-    Term* f12 = app(app(var (f), prim (1)), prim (2));
-    Term* f123 = app(app(var (f), f12), prim (3));
-    return app(lam(f, f123), build_add());
-}
-
-
-// The term (λ x . x + 10) 
-Term* build_plus10 (void) {
-    VarType* x = mkVar ();
-    return lam(x, op2(op_add, var (x), prim (10)));
-}
-
-// The term (P (P 0))) where P = (λ x . x + 10) 
-Term* build_ex13 (void) {
-    Term* p = build_plus10 ();
-    return app(p, app(p, prim (0)));
-}
-
-// The term (P (P (P (P (P (P (P 0))))))) where P = (λ x . x + 10) 
-Term* build_ex14 (void) {
-    Term* p = build_plus10 ();
-    return app(p, app(p, app(p, app(p, app(p, app(p, app(p, prim (0))))))));
-}
-
-// The term (λ f . f (f 0)) (λ x . x + 10) 
-Term* build_ex15 (void) {
-    VarType* f = mkVar ();
-    Term* lff0 = lam(f, app(var (f), app(var (f), prim (0))));
-    return app (lff0, build_plus10());
-}
-
-// A prim-op for sequencing evaluation, and debug-printing numbers as a side effect
-//  Based on https://hackage.haskell.org/package/base-4.18.0.0/docs/Debug-Trace.html#v:trace
-//  (but prints numbers rather than strings)
-Term* op_trace(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    printf ("%d\n", term2Prim(t1n)->primData);
-    return *t2;
-}
-
-// The term (λ f . λ g . (f (1 trace 5)) + (g (2 trace 6))) 
-Term* build_ex16 (void) {
-    VarType* f = mkVar ();
-    VarType* g = mkVar ();
-    return lam(f, lam(g, op2(op_add,
-        app(var (f), op2(op_trace, prim (1), prim (5))),
-        app(var (g), op2(op_trace, prim (2), prim (6))))));
-}
-
-// The term ( (λ f . λ g . (f (1 trace 5)) + (g (2 trace 6))) (λ x . x) (λ y . 100) ) 
-Term* build_ex17 (void) {
-    VarType* x = mkVar ();
-    VarType* y = mkVar ();
-    return app(app(build_ex16(), lam(x, var (x))), lam(y, prim (100)));
-}
-
-// Scott-encoded 'true' constructor, (λ kt . λ kf . kt) 
-Term* build_scott_true (void) {
-    VarType* kt = mkVar ();
-    VarType* kf = mkVar ();
-    return lam(kt, lam(kf, var (kt)));
-}
-
-// Scott-encoded 'false' constructor, (λ kt . λ kf . kf) 
-Term* build_scott_false (void) {
-    VarType* kt = mkVar ();
-    VarType* kf = mkVar ();
-    return lam(kt, lam(kf, var (kf)));
-}
-
-// Priomop for testing if a number is zero. Returns a scott-encoded boolean 
-Term* op_eqz (Term** t) {
-    Term* tn = whnf(*t);
-    if (term2Prim(tn)->primData == 0) {
-        return build_scott_true();
-    } else {
-        return build_scott_false();
-    }
-}
-
-// The term ((eqz 3) 100 200) 
-Term* build_ex20 (void) {
-    return app(app(op1(op_eqz, prim (3)),prim (100)),prim (200));
-}
-
-// The term ((eqz (0 + 0)) 100 200) 
-Term* build_ex21 (void) {
-    return app(app(op1(op_eqz, op2(op_add, prim (0), prim (0))),prim (100)),prim (200));
-}
-
-// A primop for subtraction 
-Term* op_sub(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    return prim (term2Prim(t1n)->primData - term2Prim(t2n)->primData);
-}
-
-// A primop for multiplication 
-Term* op_mul(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    return prim (term2Prim(t1n)->primData * term2Prim(t2n)->primData);
-}
-
-// A primop for less-than-or-equal testing. Returns a scott-encoded boolean. 
-Term* op_leq(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    if (term2Prim(t1n)->primData <= term2Prim(t2n)->primData) {
-        return build_scott_true ();
-    } else {
-        return build_scott_false ();
-    }
-}
-
-// The term fac = (λ n . (eqz n) 1 (n * {fac} (n - 1)))
-//  Where curly braces denote macro expansion via an op0 node
-Term* build_fac (void) {
-    VarType* n = mkVar ();
-    return lam(n, app(
-            app(op1(op_eqz, var (n)), prim (1)),
-            op2(op_mul,
-                var (n),
-                app(op0(build_fac),op2(op_sub, var (n), prim (1))))
-        ));
-}
-
-// The term fib = (λ n . (n ≤ 1) 1 ({fib} (n - 1) + {fib} (n - 2)) )
-//  Where curly braces denote macro expansion via an op0 node
-Term* build_fib (void) {
-    VarType* n = mkVar ();
-    Term* guard = app(op2(op_leq, var (n), prim (1)), prim (1));
-    Term* rec1 = app(op0(build_fib), op2(op_sub,var (n), prim (1)));
-    Term* rec2 = app(op0(build_fib), op2(op_sub,var (n), prim (2)));
-    return lam(n, app(guard,op2(op_add,rec1,rec2)));
-}
-
-// A primop for modulus 
-Term* op_mod(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    return prim (term2Prim(t1n)->primData % term2Prim(t2n)->primData);
-}
-
-// A primop for division 
-Term* op_div(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    return prim (term2Prim(t1n)->primData / term2Prim(t2n)->primData);
-}
-
-// A primop for integer equality testing. Returns a scott-encoded boolean. 
-Term* op_ieq(Term** t1, Term** t2) {
-    Term* t1n = whnf(*t1);
-    Term* t2n = whnf(*t2);
-    if (term2Prim(t1n)->primData == term2Prim(t2n)->primData) {
-        return build_scott_true();
-    } else {
-        return build_scott_false();
-    }
-}
-
-// The term collatz = (λ n . (n == 1) 1 ( (n % 2 ==0) ({collatz} (n / 2)) ({collatz} (3 * n + 1)) ) )
-//  Where curly braces denote macro expansion via an op0 node
-Term* build_collatz (void) {
-    VarType* n = mkVar ();
-    Term* guard = app(op2(op_ieq, var (n), prim (1)), prim (1));
-    Term* test = op1(op_eqz, op2(op_mod, var (n), prim (2)));
-    Term* rec1 = app(op0(build_collatz), op2(op_div, var (n), prim (2)));
-    Term* rec2 = app(op0(build_collatz), op2(op_add, op2(op_mul, prim (3), var (n)), prim (1)));
-    return lam(n, app(guard, app(app(test,rec1),rec2)));
-}
-
-// The term (E (λ m . m * 2)) + (E (λ n . n * 3)))
-//  Where shared E = (λ f . f (f 1))
-Term* build_ex25 (void) {
-    VarType* f = mkVar ();
-    Term* e = lam(f, app(var (f), app(var (f), prim (1))));
-    VarType* m = mkVar ();
-    Term* x2 = lam(m, op2(op_mul, var (m), prim (2)));
-    VarType* n = mkVar ();
-    Term* x3 = lam(n, op2(op_mul, var (n), prim (3)));
-    return op2(op_add, app(e,x2), app(e, x3));
-}
-
-// The term ((M 1 2) + (M 3 4)))
-//  Where shared M = (λ x . λ y . x * y)
-Term* build_ex26 (void) {
-    VarType* x = mkVar ();
-    VarType* y = mkVar ();
-    Term* m = lam(x, lam(y, op2(op_mul, var (x), var (y))));
-    return op2(op_add, app(app(m,prim (1)), prim (2)), app(app(m, prim (3)), prim (4)));
-}
-
-////////////////////
-// Complete tests //
-////////////////////
-
-void test_ex1(void) {pretty(whnf(build_id()));}     // expected output: printout of (λ x . x)
-void test_ex2(void) {pretty(whnf(build_ex2()));}    // expected output: printout of (λ y . y)
-void test_ex3(void) {pretty(whnf(build_ex3()));}    // expected output: printout of (λ x . x)
-void test_pearls(unsigned int n) {pretty(whnf(build_pearls(n)));}   // expected output: printout of (λ x . x)
-void test_ex5(void) {pretty(whnf(build_ex5()));}    // expected output: printout of (prim 4)
-void test_ex6(void) {pretty(whnf(build_ex6()));}    // expected output: printout of (prim 36)
-void test_ex8(void) {pretty(whnf(build_ex8()));}    // expected output: printout of (prim 36)
-void test_ex9(void) {pretty(whnf(build_ex9()));}    // expected output: printout of (prim 6)
-void test_ex10(void) {pretty(whnf(build_ex10()));}  // expected output: printout of (prim 6)
-void test_ex11(void) {pretty(whnf(build_ex11()));}  // expected output: printout of (prim 6)
-void test_ex13(void) {pretty(whnf(build_ex13()));}  // expected output: printout of (prim 20)
-void test_ex14(void) {pretty(whnf(build_ex14()));}  // expected output: printout of (prim 70)
-void test_ex15(void) {pretty(whnf(build_ex15()));}  // expected output: printout of (prim 20)
-void test_ex17(void) {pretty(whnf(build_ex17()));}  // expected output: 1, then printout of (prim 105)
-void test_ex20(void) {pretty(whnf(build_ex20()));}  // expected output: printout of (prim 200)
-void test_ex21(void) {pretty(whnf(build_ex21()));}  // expected output: printout of (prim 100)
-void test_fac(unsigned int n) {pretty(whnf(app(build_fac(),prim(n))));} // expected output: printout of (prim <factorial of n>)
-void test_fib(unsigned int n) {pretty(whnf(app(build_fib(),prim(n))));} // expected output: printout of (prim <nth fibonacci number>)
-void test_collatz(unsigned int n) {pretty(whnf(app(build_collatz(),prim(n))));} // expected output: printout of (prim 1)
-void test_ex25(void) {pretty(whnf(build_ex25()));}  // expected output: printout of (prim 13)
-void test_ex26(void) {pretty(whnf(build_ex26()));}  // expected output: printout of (prim 14)
-
-/////////////////
-// Entry point //
-/////////////////
-
-int main (void) {
-    Term* t = app(build_collatz(),prim(3));
-    global_print_root = lam(mkVar(), t);    // make t a root to avoid GC bugs
-    t = whnf (t);
-    return 0;
-}
-

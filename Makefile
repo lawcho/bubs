@@ -27,22 +27,24 @@ debug_c: build/bubs.debug.run
 run_c: build/bubs.run
 	./$<
 
-typecheck_c: src/bubs.c
-	gcc $(CCFLAGS) -fsyntax-only $<
+C_SOURCES = src/tests.c src/bubs.h src/bubs.c
 
-build/bubs.trace.run: src/bubs.c Makefile
+typecheck_c: $(C_SOURCES)
+	gcc $(CCFLAGS) -fsyntax-only $^
+
+build/bubs.trace.run: $(C_SOURCES)
 	mkdir -p build
-	gcc $(CCFLAGS) -DCONFIG_DUMP_DOT_ON_WHNF -DCONFIG_DUMP_DOT_IN_REDUCTION $< -o $@
+	gcc $(CCFLAGS) -DCONFIG_DUMP_DOT_ON_WHNF -DCONFIG_DUMP_DOT_IN_REDUCTION $^ -o $@
 	chmod +x $@
 
-build/bubs.debug.run: src/bubs.c Makefile
+build/bubs.debug.run: $(C_SOURCES)
 	mkdir -p build
-	gcc $(CCFLAGS) -g $< -o $@
+	gcc $(CCFLAGS) -g $^ -o $@
 	chmod +x $@
 
-build/bubs.run: src/bubs.c Makefile
+build/bubs.run: $(C_SOURCES)
 	mkdir -p build
-	gcc $(CCFLAGS) $< -o $@
+	gcc $(CCFLAGS) $^ -o $@
 	chmod +x $@
 
 typecheck:
