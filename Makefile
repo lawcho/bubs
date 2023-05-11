@@ -10,11 +10,14 @@ view_trace: src/viewer.html build/trace.data.js
 	python3 -m http.server 8000 &
 	firefox --new-instance localhost:8000/$<
 
-build/trace.data.js: build/bubs.trace.run
+build/trace.data.js: build/trace.data.txt
 	echo "var frames = [\`digraph {label=\"Data loaded, press buttons to render\"}" > $@
-	./$< | sed "s/\/\/ BEGIN DOT DUMP/\`,\`/" >> $@
+	cat $< | sed "s/\/\/ BEGIN DOT DUMP/\`,\`/" >> $@
 	echo "" >> $@
 	echo "\`]" >> $@
+
+build/trace.data.txt: build/bubs.trace.run
+	./$< > $@
 
 # Launch valgrind in background (bash syntax: &),
 #  then launch gdb in foreground, and connect the two
