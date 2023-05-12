@@ -15,10 +15,10 @@
 #include<stdio.h>
 #include<stdarg.h>
 
-#ifdef CONFIG_ENABLE_DEBUG_PRINTF
-#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+#ifdef CONFIG_ENABLE_DEBUG_PRINTFLN
+#define DEBUG_PRINTFLN(...) ((printf("// "),printf(__VA_ARGS__),printf("\n")))
 #else
-#define DEBUG_PRINTF(...)
+#define DEBUG_PRINTFLN(...)
 #endif
 
 ////////////////
@@ -886,9 +886,9 @@ static void recUnlinkChild (ChildCell* cc) {
 }
 
 static void collectNode (Term* t) {
-    DEBUG_PRINTF("Entering collectNode(%p)\n", t);
+    DEBUG_PRINTFLN("Entering collectNode(%p)", t);
     if (t->parents == NULL) {
-        DEBUG_PRINTF("Node %p is dead, freeing recursively.\n", t);
+        DEBUG_PRINTFLN("Node %p is dead, freeing recursively.", t);
         switch (t->tag) {
         case LamT:  {
             LamType* lamNode = term2Lam(t);
@@ -915,15 +915,15 @@ static void collectNode (Term* t) {
         }
         dealloc(t);
     } else {
-        DEBUG_PRINTF("Node %p is live, leaving it alone.\n", t);
+        DEBUG_PRINTFLN("Node %p is live, leaving it alone.", t);
     }
-    DEBUG_PRINTF("Leaving collectNode(%p)\n", t);
+    DEBUG_PRINTFLN("Leaving collectNode(%p)", t);
 }
 
 // Replace some dead term 'old' with another term 'new',
 //  then free 'old' recursively.
 static Term* replaceAndCollect (Term* old , Term* new) {
-    DEBUG_PRINTF("Entering replaceAndCollect(%p,%p)\n",old,new);
+    DEBUG_PRINTFLN("Entering replaceAndCollect(%p,%p)",old,new);
     assert(old != NULL); assert(old->parents != NULL);
     assert(new != NULL);
 
@@ -935,7 +935,7 @@ static Term* replaceAndCollect (Term* old , Term* new) {
 
     assert(new->parents != NULL);
 
-    DEBUG_PRINTF("Leaving replaceAndCollect(%p,%p)\n",old,new);
+    DEBUG_PRINTFLN("Leaving replaceAndCollect(%p,%p)",old,new);
     return new;
 }
 
@@ -954,105 +954,105 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
     // Have uplinks => loop over them, spawning upcopies at each
     ChildCell* i = cc;
     do {Term* t = ccParent(i);
-        DEBUG_PRINTF("Upcopying into term at %p.\n", t);
+        DEBUG_PRINTFLN("Upcopying into term at %p.", t);
         #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
             dump_dot("Upcopying",3, newChild,"lightblue", cc->child, "darkgreen", ccParent(cc), "lightgreen");
         #endif
         switch (i->tag){    
         case LamBody:{
             LamType* lamNode = term2Lam(t);
-            DEBUG_PRINTF("Cloning a λ-node from its only child.\n");
+            DEBUG_PRINTFLN("Cloning a λ-node from its only child.");
             if (lamNode->copy != NULL) {
-                DEBUG_PRINTF("Copied up into an already-copied λ-node. "
-                "Mutating the existing copy at %p and quitting\n",
+                DEBUG_PRINTFLN("Copied up into an already-copied λ-node. "
+                "Mutating the existing copy at %p and quitting.",
                 &(lamNode->copy->header));
                 replaceCC(&(lamNode->copy->lamBody), newChild);
             } else {
                 VarType* new_var = mkVar();
                 LamType* new_lam = mkLam(true, new_var, newChild);
-                DEBUG_PRINTF("Allocated a copy of the λ-node on the heap, at %p.\n",&(new_lam->header));
+                DEBUG_PRINTFLN("Allocated a copy of the λ-node on the heap, at %p.",&(new_lam->header));
                 lamNode->copy = new_lam;
-                DEBUG_PRINTF("Recursively upcopying the λ-var. "
-                " (this should terminate somewhere in newChild)\n");
+                DEBUG_PRINTFLN("Recursively upcopying the λ-var. "
+                " (this should terminate somewhere in newChild)");
                 upcopyUplinks(&(new_lam->lamVar.header), lamNode->lamVar.header.parents);
-                DEBUG_PRINTF("Recursively upcopying parents of the λ-node at %p.\n",t);
+                DEBUG_PRINTFLN("Recursively upcopying parents of the λ-node at %p.",t);
                 upcopyUplinks(&(new_lam->header), lamNode->header.parents);
             }
             break;}
 
         case AppFun: {
             AppType* appNode = term2App(ccParent(i));
-            DEBUG_PRINTF("Cloning an @-node from the fun side.\n");
+            DEBUG_PRINTFLN("Cloning an @-node from the fun side.");
             if (appNode->copy != NULL) {
-                DEBUG_PRINTF("Copied up into an already-copied @-node. "
-                "Mutating the existing copy at %p and quitting\n",
+                DEBUG_PRINTFLN("Copied up into an already-copied @-node. "
+                "Mutating the existing copy at %p and quitting.",
                 &(appNode->copy->header));
                 replaceCC(&(appNode->copy->appFun), newChild);
             } else {
                 AppType* new_app = mkApp(true, newChild, appNode->appArg.child);
-                DEBUG_PRINTF("Allocated a copy of the @-node, at %p.\n",&(new_app->header));
+                DEBUG_PRINTFLN("Allocated a copy of the @-node, at %p.",&(new_app->header));
                 appNode->copy = new_app;
-                DEBUG_PRINTF("Recursively upcopying parents of the @-node\n");
+                DEBUG_PRINTFLN("Recursively upcopying parents of the @-node");
                 upcopyUplinks (&(new_app->header), appNode->header.parents);
             }
             ;break;}
 
         case AppArg: {
             AppType* appNode = term2App(ccParent(i));
-            DEBUG_PRINTF("Cloning an @-node from the arg side.\n");
+            DEBUG_PRINTFLN("Cloning an @-node from the arg side.");
             if (appNode->copy != NULL) {
-                DEBUG_PRINTF("Copied up into an already-copied @-node. "
-                "Mutating the existing copy at %p and quitting\n",
+                DEBUG_PRINTFLN("Copied up into an already-copied @-node. "
+                "Mutating the existing copy at %p and quitting.",
                 &(appNode->copy->header));
                 replaceCC(&(appNode->copy->appArg), newChild);
             } else {
                 AppType* new_app = mkApp(true, appNode->appFun.child, newChild);
-                DEBUG_PRINTF("Allocated a copy of the @-node, at %p.\n",&(new_app->header));
+                DEBUG_PRINTFLN("Allocated a copy of the @-node, at %p.",&(new_app->header));
                 appNode->copy = new_app;
-                DEBUG_PRINTF("Recursively upcopying parents of the @-node\n");
+                DEBUG_PRINTFLN("Recursively upcopying parents of the @-node");
                 upcopyUplinks (&(new_app->header), appNode->header.parents);
             }
             ;break;}
 
         case Op2Arg1: {
             Op2Type* op2Node = term2Op2(ccParent(i));
-            DEBUG_PRINTF("Cloning an op2-node from the arg1 side.\n");
+            DEBUG_PRINTFLN("Cloning an op2-node from the arg1 side.");
             if (op2Node->copy != NULL) {
-                DEBUG_PRINTF("Copied up into an already-copied op2-node. "
-                "Mutating the existing copy at %p and quitting\n",
+                DEBUG_PRINTFLN("Copied up into an already-copied op2-node. "
+                "Mutating the existing copy at %p and quitting.",
                 &(op2Node->copy->header));
                 replaceCC(&(op2Node->copy->op2Arg1), newChild);
             } else {
                 Op2Type* new_op2 = mkOp2(true, op2Node->primop, newChild, op2Node->op2Arg2.child);
-                DEBUG_PRINTF("Allocated a copy of the op2-node, at %p.\n",&(new_op2->header));
+                DEBUG_PRINTFLN("Allocated a copy of the op2-node, at %p.",&(new_op2->header));
                 op2Node->copy = new_op2;
-                DEBUG_PRINTF("Recursively upcopying parents of the op2-node.\n");
+                DEBUG_PRINTFLN("Recursively upcopying parents of the op2-node.");
                 upcopyUplinks (&(new_op2->header), op2Node->header.parents);
             }
             ;break;}
 
         case Op2Arg2: {
             Op2Type* op2Node = term2Op2(ccParent(i));
-            DEBUG_PRINTF("Cloning an op2-node from the arg2 side.\n");
+            DEBUG_PRINTFLN("Cloning an op2-node from the arg2 side.");
             if (op2Node->copy != NULL) {
-                DEBUG_PRINTF("Copied up into an already-copied op2-node. "
-                "Mutating the existing copy at %p and quitting\n",
+                DEBUG_PRINTFLN("Copied up into an already-copied op2-node. "
+                "Mutating the existing copy at %p and quitting.",
                 &(op2Node->copy->header));
                 replaceCC(&(op2Node->copy->op2Arg2), newChild);
             } else {
                 Op2Type* new_op2 = mkOp2(true, op2Node->primop, op2Node->op2Arg1.child, newChild);
-                DEBUG_PRINTF("Allocated a copy of the op2-node, at %p.\n",&(new_op2->header));
+                DEBUG_PRINTFLN("Allocated a copy of the op2-node, at %p.",&(new_op2->header));
                 op2Node->copy = new_op2;
-                DEBUG_PRINTF("Recursively upcopying parents of the op2-node\n");
+                DEBUG_PRINTFLN("Recursively upcopying parents of the op2-node");
                 upcopyUplinks (&(new_op2->header), op2Node->header.parents);
             }
             ;break;}
 
         case Op1Arg: {
             Op1Type* op1Node = term2Op1(ccParent(i));
-            DEBUG_PRINTF("Cloning an op1 from its only child.\n");
+            DEBUG_PRINTFLN("Cloning an op1 from its only child.");
             Op1Type* new_op1 = mkOp1(op1Node->primop, newChild);
-            DEBUG_PRINTF("Recursively upcopying parents of the op1-node.\n");
+            DEBUG_PRINTFLN("Recursively upcopying parents of the op1-node.");
             upcopyUplinks(&(new_op1->header), op1Node->header.parents);
             break;}
         default: {assert(false);}
@@ -1114,7 +1114,7 @@ static void cleanUplinks(ChildCell* cc) {
 
 // Contract a β-redex in-place (and return a pointer for convenience)
 static Term* reduceRedex(Term* t) {
-    DEBUG_PRINTF("Entering reduceRedex(%p)\n",t);
+    DEBUG_PRINTFLN("Entering reduceRedex(%p)",t);
 
     // Get pointers to relevant sub-terms
     assert(t->tag == AppT);
@@ -1133,9 +1133,9 @@ static Term* reduceRedex(Term* t) {
     Term* result;
 
     if (dl_is_singleton(lampars)) {
-        DEBUG_PRINTF("Single-parent fast path.\n");
+        DEBUG_PRINTFLN("Single-parent fast path.");
         #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
-            dump_dot("About to substitute λ-body in place.\n",4,
+            dump_dot("About to substitute λ-body in place",4,
             t,"orange",lamterm,"orange",varterm,"darkgreen",argterm,"lightblue");
         #endif
         replaceTerm(varterm, argterm);
@@ -1146,7 +1146,7 @@ static Term* reduceRedex(Term* t) {
         result = l->lamBody.child;
     }
     else if (varterm->parents == NULL) {
-        DEBUG_PRINTF("Unused-variable fast path.\n");
+        DEBUG_PRINTFLN("Unused-variable fast path.");
         #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
             dump_dot("Variable λ-node unused, no work to do",3,
             t,"orange",lamterm,"orange",varterm,"green");
@@ -1154,16 +1154,16 @@ static Term* reduceRedex(Term* t) {
         result = l->lamBody.child;
     }
     else {
-        DEBUG_PRINTF("General case of β-reduction.\n");
+        DEBUG_PRINTFLN("General case of β-reduction.");
 
         // Stack-allocate a λ-node to collect the result of upcopy
         LamType tmp;
         init_Term(LamT,&(tmp.header));
         init_Term(VarT,&(tmp.lamVar.header));
         dl_init(LamBody, NULL, &(tmp.lamBody));
-        DEBUG_PRINTF("&tmp == %p\n",&tmp);
-        DEBUG_PRINTF("&(tmp.lamBody) == %p\n",&(tmp.lamBody));
-        DEBUG_PRINTF("&(tmp.header) == %p\n",&(tmp.header));
+        DEBUG_PRINTFLN("&tmp == %p",&tmp);
+        DEBUG_PRINTFLN("&(tmp.lamBody) == %p",&(tmp.lamBody));
+        DEBUG_PRINTFLN("&(tmp.header) == %p",&(tmp.header));
 
         // Upcopy, starting at [var ↦ argterm], stopping at l
         tmp.copy = &tmp;
@@ -1189,7 +1189,7 @@ static Term* reduceRedex(Term* t) {
         // Remove tmp from result's parent list
         unlinkCC(&(tmp.lamBody));
     }
-    DEBUG_PRINTF("Leaving reduceRedex(%p), about to replace %p with %p\n",t, t, result);
+    DEBUG_PRINTFLN("Leaving reduceRedex(%p), about to replace %p with %p",t, t, result);
     #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
         dump_dot("Constructed the β-contractum",3,
         t,"orange",lamterm,"orange",result,"olive");
@@ -1199,7 +1199,7 @@ static Term* reduceRedex(Term* t) {
 
 // Reduce an op2-headed term
 static Term* reduceOp2 (Term* t){
-    DEBUG_PRINTF("Entering reduceOp2(%p)\n",t);
+    DEBUG_PRINTFLN("Entering reduceOp2(%p)",t);
     assert(t->tag == Op2T);
     Op2Type* op2Node = term2Op2(t);
     #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
@@ -1208,13 +1208,13 @@ static Term* reduceOp2 (Term* t){
     Term* new_term = (op2Node->primop)(
         &(op2Node->op2Arg1.child),
         &(op2Node->op2Arg2.child));
-    DEBUG_PRINTF("Leaving reduceOp2(%p), but first replacing %p with %p\n",t, t, new_term);
+    DEBUG_PRINTFLN("Leaving reduceOp2(%p), but first replacing %p with %p",t, t, new_term);
     return replaceAndCollect (t, new_term);
 }
 
 // Reduce an op1-headed term
 static Term* reduceOp1 (Term* t){
-    DEBUG_PRINTF("Entering reduceOp1(%p)\n",t);
+    DEBUG_PRINTFLN("Entering reduceOp1(%p)",t);
     assert(t->tag == Op1T);
     Op1Type* op1Node = term2Op1(t);
     #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
@@ -1222,20 +1222,20 @@ static Term* reduceOp1 (Term* t){
     #endif
     Term* new_term = (op1Node->primop)(
         &(op1Node->op1Arg.child));
-    DEBUG_PRINTF("Leaving reduceOp1(%p), but first replacing %p with %p\n",t, t, new_term);
+    DEBUG_PRINTFLN("Leaving reduceOp1(%p), but first replacing %p with %p",t, t, new_term);
     return replaceAndCollect (t, new_term);
 }
 
 // Reduce an op0-headed term
 static Term* reduceOp0 (Term* t){
-    DEBUG_PRINTF("Entering reduceOp0(%p)\n",t);
+    DEBUG_PRINTFLN("Entering reduceOp0(%p)",t);
     assert(t->tag == Op0T);
     Op0Type* op0Node = term2Op0(t);
     #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
         dump_dot("About to call function pointer in Op0 node",1,t,"orange");
     #endif
     Term* new_term = (op0Node->primop)();
-    DEBUG_PRINTF("Leaving reduceOp0(%p), but first replacing %p with %p\n",t, t, new_term);
+    DEBUG_PRINTFLN("Leaving reduceOp0(%p), but first replacing %p with %p",t, t, new_term);
     return replaceAndCollect (t, new_term);
 }
 
@@ -1245,7 +1245,7 @@ static Term* reduceOp0 (Term* t){
 
 // Reduce a term to weak-head normal form
 Term* whnf(Term* t) {
-    DEBUG_PRINTF("Entering whnf(%p)\n",t);
+    DEBUG_PRINTFLN("Entering whnf(%p)",t);
     assert(t != NULL);
     assert(t->parents != NULL); // normalising parent-less terms can cause subtle GC bugs
     #ifdef CONFIG_DUMP_DOT_ON_WHNF
@@ -1253,20 +1253,20 @@ Term* whnf(Term* t) {
     #endif
     switch (t->tag) {
     case AppT:  {
-        DEBUG_PRINTF("About to normalise fun-child of @-node %p\n",t);
+        DEBUG_PRINTFLN("About to normalise fun-child of @-node %p",t);
         Term* norm_fun = whnf(term2App(t)->appFun.child);
         if (norm_fun->tag == LamT) {
-            DEBUG_PRINTF("Fun-child of @-node %p normalised to a λ-node, about to β-contract.\n",t);
+            DEBUG_PRINTFLN("Fun-child of @-node %p normalised to a λ-node, about to β-contract.",t);
             return whnf(reduceRedex (t));
         } else {
-            DEBUG_PRINTF("Fun-child of @-node %p didn't normalise to a λ-node, normalisation of @-node is blocked.\n",t);
+            DEBUG_PRINTFLN("Fun-child of @-node %p didn't normalise to a λ-node, normalisation of @-node is blocked.",t);
             return t;
         }}
     case Op2T:  {return whnf(reduceOp2(t));}
     case Op1T:  {return whnf(reduceOp1(t));}
     case Op0T:  {return whnf(reduceOp0(t));}
     default: {
-        DEBUG_PRINTF("Normalisation of %p blocked or completed, returning it without further modification.\n",t);
+        DEBUG_PRINTFLN("Normalisation of %p blocked or completed, returning it without further modification.",t);
         return t;
         }
     }
