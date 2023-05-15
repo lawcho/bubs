@@ -7,6 +7,7 @@
 // Dependencies //
 //////////////////
 
+#define _GNU_SOURCE
 #include"bubs.h"
 #include<stdlib.h>
 #include<assert.h>
@@ -19,6 +20,19 @@
 #define DEBUG_PRINTFLN(...) ((printf("// "),printf(__VA_ARGS__),printf("\n")))
 #else
 #define DEBUG_PRINTFLN(...)
+#endif
+
+#ifdef CONFIG_USE_DLADDR
+// Print function pointers by resolving them to strings
+// Pros: human-friendly, well-defined
+// Cons: requires Linux and `gcc -rdynamic -ldl`
+#include <dlfcn.h>
+#define PRINT_FUN_PTR(p)({Dl_info tmp;dladdr(p,&tmp);printf("%s",tmp.dli_sname);})
+#else
+// Print function pointers directly as hex addresses
+// Pros: portability
+// Cons: undefined behaviour, not human-friendly
+#define PRINT_FUN_PTR(p)(printf("%p",p))
 #endif
 
 ////////////////
@@ -693,7 +707,8 @@ static void dump_dot_Term_set(Term* t){
                 break;}
             case Op2T: {
                 Op2Type* op2Node = term2Op2(t);
-                printf("n%p [label =\"Op2T | <parents> | <copy> | %p ",t, op2Node->primop);
+                printf("n%p [label =\"Op2T | <parents> | <copy> | ",t);
+                PRINT_FUN_PTR(op2Node->primop);
                 dump_dot_CC_node(&(op2Node->op2Arg1));
                 dump_dot_CC_node(&(op2Node->op2Arg2));
                 printf("\", id=n%p];\n",t);
@@ -710,7 +725,8 @@ static void dump_dot_Term_set(Term* t){
                 break;}
             case Op1T: {
                 Op1Type* op1Node = term2Op1(t);
-                printf("n%p [label =\"Op1T | <parents> | <copy> | %p ",t, op1Node->primop);
+                printf("n%p [label =\"Op1T | <parents> | <copy> | ",t);
+                PRINT_FUN_PTR(op1Node->primop);
                 dump_dot_CC_node(&(op1Node->op1Arg));
                 printf("\", id=n%p];\n",t);
                 dump_dot_Term_set(op1Node->op1Arg.child);
@@ -719,8 +735,9 @@ static void dump_dot_Term_set(Term* t){
                 break;}
             case Op0T: {
                 Op0Type* op0Node = term2Op0(t);
-                printf("n%p [label =\"Op0T | <parents> | <copy> | %p ",t, op0Node->primop);
-                printf("\", id=n%p];\n",t);
+                printf("n%p [label =\"Op0T | <parents> | <copy> | ",t);
+                PRINT_FUN_PTR(op0Node->primop);
+                printf(" \", id=n%p];\n",t);
                 printf("\n");
                 break;}
             case PrimT: {
