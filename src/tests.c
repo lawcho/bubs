@@ -305,7 +305,7 @@ void test_ex26(void) {pretty(whnf(build_ex26()));}  // expected output: printout
 
 int main (void) {
     Term* t = build_ex11();
-    global_print_root = lam(mkVar(), t);    // make t a root to avoid GC bugs
+    global_print_root = op1(NULL, t);    // make t a root to avoid GC bugs
     t = whnf (t);
     return 0;
 }
