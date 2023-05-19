@@ -40,3 +40,10 @@ extern Term* global_print_root;
 //  * The global variable global_print_root.
 //  * The passed nodes to highlight.
 void dump_dot(char* label, unsigned int n,...);
+
+// A helper macro for building λ-expressions with lightweight syntax
+// Relies on GCC 'statement expressions' extension, and unicode support,
+//  so is off by default
+#if !defined(λ) && defined(CONFIG_ENABLE_LAMBDA_MACRO)
+#define λ(var, body) ({VarType* var = mkVar(); lam(var, body);})
+#endif
