@@ -1,0 +1,25 @@
+<!-- HTML+JS script for static rendering of BUSB heap dumps
+    Based on https://raw.githack.com/hpcc-systems/hpcc-js-wasm/trunk/index.html
+-->
+<!DOCTYPE html>
+<meta charset="utf-8">
+<body>
+<!-- Graph data, loaded from the 'server' (i.e. local filesystem)
+    This script is exected to set up a Javascript variable called 'frames',
+    containing an array of Graphviz DOT source strings.
+-->
+<script src="../build/trace.data.js"></script>
+<div id="graphs" style="display:flex; flex-wrap:wrap"><p>The graphs will appear here once rendered...</p></div>
+<style>svg {border-style: solid;height: 300px; margin: 10px}</style>
+<script type="module">
+import { Graphviz } from "https://cdn.jsdelivr.net/npm/@hpcc-js/wasm/dist/index.js";
+const graphviz = await Graphviz.load();
+const graphs = document.getElementById("graphs");
+frames.forEach(dot => 
+    graphs.innerHTML += graphviz.layout(dot, "svg", "dot")
+);
+graphs.firstElementChild.remove();
+graphs.firstElementChild.remove();
+</script>
+</body>
+</html>

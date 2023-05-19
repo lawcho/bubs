@@ -1,14 +1,18 @@
 
-.PHONY: clean view_trace typecheck_c run_c debug_c typecheck repl debug
+.PHONY: clean view_trace view_trace_static typecheck_c run_c debug_c typecheck repl debug
 
 override CCFLAGS += -Wall -Wextra -fno-strict-aliasing
 
 clean:
 	git clean -fdx
 
-view_trace: src/viewer.html build/trace.data.js
+view_trace_static: src/viewer_s.html build/trace.data.js
 	python3 -m http.server 8000 &
-	firefox --new-instance localhost:8000/$<
+	firefox localhost:8000/$<
+
+view_trace: src/viewer_a.html build/trace.data.js
+	python3 -m http.server 8000 &
+	firefox localhost:8000/$<
 
 build/trace.data.js: build/trace.data.txt
 	echo "var frames = [\`digraph {label=\"Data loaded, press buttons to render\"}" > $@
