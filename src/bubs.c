@@ -385,41 +385,53 @@ VarType* mkVar (void) {
 }
 
 // Initialize a λ-node on the heap
-static LamType* mkLam (bool selfRef, VarType* var, Term* body) {
+static LamType* mkLam (bool clone, VarType* var, Term* body) {
     LamType* lamNode = container_of(var, LamType, lamVar);
 
     init_Term(LamT, &(lamNode->header));
-    lamNode->copy = (selfRef ? lamNode : NULL);
+
     // lamNode->lamVar already initialized by mkVar
     dl_init(LamBody, body, &(lamNode->lamBody));
-
-    addToParents(body, &(lamNode->lamBody));
+    if (clone){
+        lamNode->copy = lamNode;
+    } else {
+        lamNode->copy = NULL;
+        addToParents(body, &(lamNode->lamBody));
+    }
     return lamNode;
 }
 
 // Construct an @-node on the heap
-static AppType* mkApp (bool selfRef, Term* fun, Term* arg) {
+static AppType* mkApp (bool clone, Term* fun, Term* arg) {
     AppType* appNode = malloc(sizeof(AppType));
 
     init_Term(AppT, &(appNode->header));
-    appNode->copy = (selfRef ? appNode : NULL);
     dl_init(AppFun, fun, &(appNode->appFun));
     dl_init(AppArg, arg, &(appNode->appArg));
-    addToParents(fun, &(appNode->appFun));
-    addToParents(arg, &(appNode->appArg));
+    if (clone){
+        appNode->copy = appNode;
+    } else {
+        appNode->copy = NULL;
+        addToParents(fun, &(appNode->appFun));
+        addToParents(arg, &(appNode->appArg));
+    }
     return appNode;
 }
 
-static Op2Type* mkOp2 (bool selfRef, Term* (*primop)(Term** , Term**), Term* arg1, Term* arg2) {
+static Op2Type* mkOp2 (bool clone, Term* (*primop)(Term** , Term**), Term* arg1, Term* arg2) {
     Op2Type* op2Node = malloc(sizeof(Op2Type));
 
     init_Term(Op2T, &(op2Node->header));
-    op2Node->copy = (selfRef ? op2Node : NULL);
     op2Node->primop = primop;
     dl_init(Op2Arg1, arg1, &(op2Node->op2Arg1));
     dl_init(Op2Arg2, arg2, &(op2Node->op2Arg2));
-    addToParents(arg1, &(op2Node->op2Arg1));
-    addToParents(arg2, &(op2Node->op2Arg2));
+    if (clone) {
+        op2Node->copy = op2Node;
+    } else {
+        op2Node->copy = NULL;
+        addToParents(arg1, &(op2Node->op2Arg1));
+        addToParents(arg2, &(op2Node->op2Arg2));
+    }
     return op2Node;
 }
 
@@ -883,16 +895,6 @@ static void unlinkCC (ChildCell* cc) {
     assert(dl_is_singleton(cc));
 }
 
-// Replace the term poitned to by a ChildCell.
-// Updates parent-lists, for both the old term and its replacement
-// Precondition: cc is not in new's parent list
-// Precondition: cc is not NULL
-static void replaceCC(ChildCell* cc, Term* new){
-    unlinkCC(cc);
-    cc->child = new;
-    addToParents(new,cc);
-}
-
 // Garbage collect a node. 
 static void collectNode(Term* t);
 
@@ -967,14 +969,18 @@ void collect(Term* t) {
 /////////////////////////////////
 
 // See SML code for explanation of the algorithm
+// Does NOT add link newly allocated nodes into co-parent lists.
 static void upcopyUplinks (Term* newChild, ChildCell* cc) {
     if (cc == NULL) {return;}   // No uplinks in list => stop recursion
     // Have uplinks => loop over them, spawning upcopies at each
     ChildCell* i = cc;
+    DEBUG_PRINTFLN("Begin upcopying parents of %p, inserting %p.", cc->child, newChild);
     do {Term* t = ccParent(i);
-        DEBUG_PRINTFLN("Upcopying into term at %p.", t);
+        DEBUG_PRINTFLN("In a loop upcopying into parents of %p.", cc->child);
+        DEBUG_PRINTFLN("Upcopy entered %p (a parent of %p), inserting %p.", t, i->child, newChild);
+        assert(i->child == cc->child);
         #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
-            dump_dot("Upcopying",3, newChild,"lightblue", cc->child, "darkgreen", ccParent(cc), "lightgreen");
+            dump_dot("Upcopying",3, newChild,"lightblue", i->child, "darkgreen", t, "lightgreen");
         #endif
         switch (i->tag){    
         case LamBody:{
@@ -984,7 +990,7 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
                 DEBUG_PRINTFLN("Copied up into an already-copied λ-node. "
                 "Mutating the existing copy at %p and quitting.",
                 &(lamNode->copy->header));
-                replaceCC(&(lamNode->copy->lamBody), newChild);
+                lamNode->copy->lamBody.child = newChild;
             } else {
                 VarType* new_var = mkVar();
                 LamType* new_lam = mkLam(true, new_var, newChild);
@@ -999,13 +1005,13 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
             break;}
 
         case AppFun: {
-            AppType* appNode = term2App(ccParent(i));
+            AppType* appNode = term2App(t);
             DEBUG_PRINTFLN("Cloning an @-node from the fun side.");
             if (appNode->copy != NULL) {
                 DEBUG_PRINTFLN("Copied up into an already-copied @-node. "
                 "Mutating the existing copy at %p and quitting.",
                 &(appNode->copy->header));
-                replaceCC(&(appNode->copy->appFun), newChild);
+                appNode->copy->appFun.child = newChild;
             } else {
                 AppType* new_app = mkApp(true, newChild, appNode->appArg.child);
                 DEBUG_PRINTFLN("Allocated a copy of the @-node, at %p.",&(new_app->header));
@@ -1016,13 +1022,13 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
             ;break;}
 
         case AppArg: {
-            AppType* appNode = term2App(ccParent(i));
+            AppType* appNode = term2App(t);
             DEBUG_PRINTFLN("Cloning an @-node from the arg side.");
             if (appNode->copy != NULL) {
                 DEBUG_PRINTFLN("Copied up into an already-copied @-node. "
                 "Mutating the existing copy at %p and quitting.",
                 &(appNode->copy->header));
-                replaceCC(&(appNode->copy->appArg), newChild);
+                appNode->copy->appArg.child = newChild;
             } else {
                 AppType* new_app = mkApp(true, appNode->appFun.child, newChild);
                 DEBUG_PRINTFLN("Allocated a copy of the @-node, at %p.",&(new_app->header));
@@ -1033,13 +1039,13 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
             ;break;}
 
         case Op2Arg1: {
-            Op2Type* op2Node = term2Op2(ccParent(i));
+            Op2Type* op2Node = term2Op2(t);
             DEBUG_PRINTFLN("Cloning an op2-node from the arg1 side.");
             if (op2Node->copy != NULL) {
                 DEBUG_PRINTFLN("Copied up into an already-copied op2-node. "
                 "Mutating the existing copy at %p and quitting.",
                 &(op2Node->copy->header));
-                replaceCC(&(op2Node->copy->op2Arg1), newChild);
+                op2Node->copy->op2Arg1.child = newChild;
             } else {
                 Op2Type* new_op2 = mkOp2(true, op2Node->primop, newChild, op2Node->op2Arg2.child);
                 DEBUG_PRINTFLN("Allocated a copy of the op2-node, at %p.",&(new_op2->header));
@@ -1050,13 +1056,13 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
             ;break;}
 
         case Op2Arg2: {
-            Op2Type* op2Node = term2Op2(ccParent(i));
+            Op2Type* op2Node = term2Op2(t);
             DEBUG_PRINTFLN("Cloning an op2-node from the arg2 side.");
             if (op2Node->copy != NULL) {
                 DEBUG_PRINTFLN("Copied up into an already-copied op2-node. "
                 "Mutating the existing copy at %p and quitting.",
                 &(op2Node->copy->header));
-                replaceCC(&(op2Node->copy->op2Arg2), newChild);
+                op2Node->copy->op2Arg2.child = newChild;
             } else {
                 Op2Type* new_op2 = mkOp2(true, op2Node->primop, op2Node->op2Arg1.child, newChild);
                 DEBUG_PRINTFLN("Allocated a copy of the op2-node, at %p.",&(new_op2->header));
@@ -1067,7 +1073,7 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
             ;break;}
 
         case Op1Arg: {
-            Op1Type* op1Node = term2Op1(ccParent(i));
+            Op1Type* op1Node = term2Op1(t);
             DEBUG_PRINTFLN("Cloning an op1 from its only child.");
             Op1Type* new_op1 = mkOp1(op1Node->primop, newChild);
             DEBUG_PRINTFLN("Recursively upcopying parents of the op1-node.");
@@ -1075,21 +1081,36 @@ static void upcopyUplinks (Term* newChild, ChildCell* cc) {
             break;}
         default: {assert(false);}
         }
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("Upcopied",3, newChild,"lightblue", i->child, "darkgreen", t, "lightgreen");
+        #endif
         i = i->succ;
     } while (i != cc);
+    DEBUG_PRINTFLN("Done upcopying parents of %p, inserting %p.", cc->child, newChild);
+}
+
+static void linkCC(ChildCell* cc){
+    assert(dl_is_singleton(cc));
+    addToParents(cc->child, cc);
 }
 
 // cleanUplinks follow the recursion path of upcopyUplinks,
-// but clearing the copy slots instead of setting them
+// but clearing the copy slots instead of setting them, and installing
+// up- and co-parent- links (see the paper for why this can't be done in upcopyUplinks)
 static void cleanUplinks(ChildCell* cc) {
     if (cc == NULL) {return;}   // No uplinks in list => stop recursion
     // Have uplinks => loop over them, spawning upcleans at each
     ChildCell* i = cc;
-    do {switch (i->tag){
+    do {Term* node = ccParent(i);
+        DEBUG_PRINTFLN("Upcleaning into %p.",node);
+        switch (i->tag){
         case LamBody: {
-            Term* node = ccParent(i);
             LamType* lamNode = term2Lam(node);
             if (lamNode->copy != NULL){
+                #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+                    dump_dot("Upcleaning",2,node,"lightgreen",&(lamNode->copy->header),"lightblue");
+                #endif
+                linkCC(&(lamNode->copy->lamBody));
                 lamNode->copy->copy = NULL;
                 lamNode->copy = NULL;
                 cleanUplinks(lamNode->lamVar.header.parents);
@@ -1098,9 +1119,13 @@ static void cleanUplinks(ChildCell* cc) {
             break;}
         case AppFun:    // fall through
         case AppArg: {
-            Term* node = ccParent(i);
             AppType* appNode = term2App(ccParent(i));
             if (appNode->copy != NULL) {
+                #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+                    dump_dot("Upcleaning",2,node,"lightgreen",&(appNode->copy->header),"lightblue");
+                #endif
+                linkCC(&(appNode->copy->appFun));
+                linkCC(&(appNode->copy->appArg));
                 appNode->copy->copy = NULL;
                 appNode->copy = NULL;
                 cleanUplinks(node->parents);
@@ -1108,16 +1133,22 @@ static void cleanUplinks(ChildCell* cc) {
             break;}
         case Op2Arg1:   // fall through
         case Op2Arg2: {
-            Term* node = ccParent(i);
             Op2Type* op2Node = term2Op2(node);
             if (op2Node->copy != NULL) {
+                #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+                    dump_dot("Upcleaning",2,node,"lightgreen",&(op2Node->copy->header),"lightblue");
+                #endif
+                linkCC(&(op2Node->copy->op2Arg1));
+                linkCC(&(op2Node->copy->op2Arg2));
                 op2Node->copy->copy = NULL;
                 op2Node->copy = NULL;
                 cleanUplinks(node->parents);
             }
             break;}
         case Op1Arg: {
-            Term* node = ccParent(i);
+            #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+                dump_dot("Upcleaning",1,node,"lightgreen");
+            #endif
             cleanUplinks(node->parents);
             break;}
         default: {assert(false);}
@@ -1197,15 +1228,17 @@ static Term* reduceRedex(Term* t) {
         result = tmp.lamBody.child;
 
         #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
-            dump_dot("Done constructing the β-contractum, about to clean up",3,
+            dump_dot("Done upcopying to form the β-contractum, about to clean it up",3,
             t,"orange",lamterm,"orange",result,"olive");
         #endif
         // Upclean, starting at var, stopping at l
         l->copy = NULL;
         cleanUplinks(varterm->parents);
 
-        // Remove tmp from result's parent list
-        unlinkCC(&(tmp.lamBody));
+        #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
+            dump_dot("Cleaned up the β-contractum",3,
+            t,"orange",lamterm,"orange",result,"olive");
+        #endif
     }
     DEBUG_PRINTFLN("Leaving reduceRedex(%p), about to replace %p with %p",t, t, result);
     #ifdef CONFIG_DUMP_DOT_IN_REDUCTION
