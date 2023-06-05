@@ -1,18 +1,17 @@
 
 .PHONY: clean view_trace view_trace_static typecheck_c run_c debug_c typecheck repl debug
+.PRECIOUS: build/trace.data.txt
 
-override CCFLAGS += -Wall -Wextra -fno-strict-aliasing
+override CCFLAGS += -Wall -Wextra -fno-strict-aliasing -rdynamic -g -ldl -DCONFIG_USE_DLADDR -DCONFIG_ENABLE_LAMBDA_MACRO -DCONFIG_ENABLE_DEBUG_PRINTFLN
 
 clean:
 	git clean -fdx
 
-view_trace_static: src/viewer_s.html build/trace.data.js
-	python3 -m http.server 8000 &
-	firefox localhost:8000/$<
+build/trace.png: build/trace.data.txt
+	dot $< | gvpack -array -Glabel="" | neato -s -n2 -Tpng > $@
 
-view_trace: src/viewer_a.html build/trace.data.js
-	python3 -m http.server 8000 &
-	firefox localhost:8000/$<
+view_trace: src/viewer.html build/trace.data.js
+	firefox $<
 
 build/trace.data.js: build/trace.data.txt
 	echo "var frames = [\`digraph {label=\"Data loaded, press buttons to render\"}" > $@
