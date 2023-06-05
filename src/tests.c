@@ -273,6 +273,10 @@ Term* build_ex26 (void) {
     return op2(op_add, app(app(m,prim (1)), prim (2)), app(app(m, prim (3)), prim (4)));
 }
 
+// Trivial 1-ary prim-op.
+Term* op_id(Term** t)
+    {return *t;}
+
 ////////////////////
 // Complete tests //
 ////////////////////
@@ -303,9 +307,33 @@ void test_ex26(void) {pretty(whnf(build_ex26()));}  // expected output: printout
 // Entry point //
 /////////////////
 
+
 int main (void) {
-    Term* t = build_ex11();
-    global_print_root = op1(NULL, t);    // make t a root to avoid GC bugs
-    t = whnf (t);
-    return 0;
+    Term* t =
+
+    //  λ x . x
+        "TODO: live code me!"
+
+    global_print_root = t;
+    dump_dot("",0);
 }
+
+    //  λ x . x + 2
+
+    //  (λ x . x + 2) 3
+
+    //  (λ x . x + 2) (3 × 4)
+
+    //  (λ x . x + x) (3 × 4)
+
+    //  f = (λ x . x + x)
+    //  f (f (f (3 × 4)))
+
+    //  big2 = (((λ x . x) (λ x . x)) ((λ x . x) 2))
+    //  f = (λ x . x + big2)
+    //  f (f (f (3 × 4)))
+
+    //  (λ x . λ y . y) z 4
+
+    //  (λ x . λ y . y) 4 z
+
