@@ -17,7 +17,7 @@
 #include<stdarg.h>
 
 #ifdef CONFIG_ENABLE_DEBUG_PRINTFLN
-#define DEBUG_PRINTFLN(...) ((printf("// "),printf(__VA_ARGS__),printf("\n")))
+#define DEBUG_PRINTFLN(...) ((printf("// "),printf(__VA_ARGS__),printf("\n"),fflush(stdout)))
 #else
 #define DEBUG_PRINTFLN(...)
 #endif
@@ -846,6 +846,7 @@ void dump_dot(char* label, unsigned int n,...){
     }
     printf("}\n");
     printf("// END DOT DUMP\n");
+    fflush(stdout);
 }
 
 
